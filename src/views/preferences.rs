@@ -1,7 +1,7 @@
 use crate::{
     app::state::AppState,
     ui::{
-        FontFace, Rect, Scene, Theme,
+        FontFace, RADIUS_MD, Rect, Scene, Theme,
         action::{CursorHint, ScrollTarget, UiAction},
         icons,
         widgets::{button, checkbox, divider, scrollbar, section_label},
@@ -49,9 +49,9 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme) {
         [viewport.width * 0.5 - 48.0, 16.0],
         top,
         theme.text_dim,
-        10.0,
+        11.0,
         14.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
 
     let sidebar = Rect::new(0.0, top.bottom(), 250.0, viewport.height - top.height);
@@ -78,8 +78,8 @@ fn build_nav(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
         profile,
         rect,
         theme.panel_alt,
-        theme.border_strong,
-        0.0,
+        theme.border,
+        RADIUS_MD,
         1.0,
     );
     scene.rounded_rect(
@@ -88,7 +88,7 @@ fn build_nav(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
         rect,
         theme.green,
         theme.green,
-        0.0,
+        15.0,
         0.0,
     );
     scene.text(
@@ -112,7 +112,7 @@ fn build_nav(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
         theme.text_dim,
         10.0,
         13.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     scene.text(
         icons::CHEVRON_DOWN,
@@ -134,8 +134,8 @@ fn build_nav(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
         organization,
         rect,
         theme.input,
-        theme.border_strong,
-        0.0,
+        theme.border,
+        RADIUS_MD,
         1.0,
     );
     scene.text(
@@ -145,7 +145,7 @@ fn build_nav(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
         theme.text_dim,
         10.0,
         14.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     scene.text(
         "NA",
@@ -197,9 +197,9 @@ fn build_nav(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
         [rect.x + 16.0, y],
         Rect::new(rect.x + 14.0, y, rect.width - 28.0, 18.0),
         theme.text_dim,
-        10.0,
+        11.0,
         13.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     y += 20.0;
     for page in REPO_PAGES {
@@ -218,22 +218,34 @@ fn nav_row(
     let row = Rect::new(clip.x, y, clip.width, 26.0);
     if row.bottom() >= clip.y && row.y <= clip.bottom() {
         let selected = state.preference_page == page;
+        let wash = Rect::new(row.x + 6.0, row.y + 1.0, row.width - 12.0, row.height - 2.0);
         if selected {
-            scene.rect(
+            scene.rounded_rect(
                 1,
-                Rect::new(row.x, row.y, 2.0, row.height),
+                wash,
                 clip,
-                theme.accent,
+                theme.accent_soft,
+                theme.accent_soft,
+                RADIUS_MD,
+                0.0,
             );
         } else if row.contains(state.mouse) {
-            scene.rect(1, row, clip, theme.panel_alt);
+            scene.rounded_rect(
+                1,
+                wash,
+                clip,
+                theme.row_hover,
+                theme.row_hover,
+                RADIUS_MD,
+                0.0,
+            );
         }
         scene.text(
             page,
             [row.x + 22.0, row.y + 6.0],
             Rect::new(row.x + 20.0, row.y, row.width - 24.0, row.height),
             if selected {
-                theme.text
+                theme.accent
             } else {
                 theme.text_muted
             },
@@ -265,9 +277,9 @@ fn build_page(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
         [content.x, content.y],
         Rect::new(content.x, content.y, content.width, 18.0),
         theme.accent,
-        10.0,
+        11.0,
         14.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     scene.text(
         &state.preference_page,
@@ -276,7 +288,7 @@ fn build_page(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
         theme.text,
         20.0,
         26.0,
-        FontFace::Sans,
+        FontFace::SansBold,
     );
     divider(
         scene,
@@ -383,16 +395,6 @@ fn build_customization(scene: &mut Scene, state: &AppState, theme: &Theme, rect:
         - state
             .preferences_scroll
             .min((page_content_height("UI Customization") - rect.height).max(0.0));
-    toggle_setting(
-        scene,
-        state,
-        theme,
-        rect,
-        &mut y,
-        "Show toolbar icon labels",
-        state.settings.show_toolbar_labels,
-        "show_toolbar_labels",
-    );
     toggle_setting(
         scene,
         state,
@@ -918,12 +920,12 @@ fn text_setting(
             [row.x, row.y + 11.0],
             visible,
             theme.text_muted,
-            11.0,
+            12.0,
             17.0,
-            FontFace::Monospace,
+            FontFace::Sans,
         );
         let field = Rect::new(row.x + 250.0, row.y + 4.0, 300.0, 28.0);
-        scene.rounded_rect(1, field, clip, theme.input, theme.border_strong, 0.0, 1.0);
+        scene.rounded_rect(1, field, clip, theme.input, theme.border_strong, RADIUS_MD, 1.0);
         scene.text(
             value,
             [field.x + 8.0, field.y + 7.0],
@@ -1016,12 +1018,12 @@ fn numeric_setting(
                 .intersection(clip)
                 .unwrap_or(visible_row),
             theme.text_muted,
-            11.0,
+            12.0,
             17.0,
-            FontFace::Monospace,
+            FontFace::Sans,
         );
         let field = Rect::new(row.x + 250.0, row.y + 4.0, 160.0, 28.0);
-        scene.rounded_rect(1, field, clip, theme.input, theme.border_strong, 0.0, 1.0);
+        scene.rounded_rect(1, field, clip, theme.input, theme.border_strong, RADIUS_MD, 1.0);
         scene.text(
             value,
             [field.x + 8.0, field.y + 7.0],

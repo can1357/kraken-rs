@@ -27,14 +27,18 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
-    let pixel = input.rect.xy + input.corner * input.rect.zw;
+    // Soft-edged rectangles (drop shadows) expand the quad by their falloff
+    // half-width so the outer half of the smoothstep is not cut off.
+    let softness = max(input.params.w, 0.0);
+    let expanded = input.rect.zw + vec2<f32>(softness * 2.0);
+    let pixel = input.rect.xy - vec2<f32>(softness) + input.corner * expanded;
     let normalized = vec2<f32>(
         pixel.x / globals.size.x * 2.0 - 1.0,
         1.0 - pixel.y / globals.size.y * 2.0,
     );
     var output: VertexOutput;
     output.position = vec4<f32>(normalized, 0.0, 1.0);
-    output.local = (input.corner - vec2<f32>(0.5)) * input.rect.zw;
+    output.local = (input.corner - vec2<f32>(0.5)) * expanded;
     output.half_size = input.rect.zw * 0.5;
     output.clip = input.clip;
     output.fill = input.fill;
@@ -57,26 +61,13 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
     let distance = rounded_distance(input.local, input.half_size, input.params.x);
-    let coverage = 1.0 - smoothstep(-0.75, 0.75, distance);
+    let falloff = max(input.params.w, 0.75);
+    let coverage = 1.0 - smoothstep(-falloff, falloff, distance);
     if coverage <= 0.0 {
         discard;
     }
     let border_mix = select(0.0, 1.0, input.params.y > 0.0 && distance > -input.params.y);
     let color = mix(input.fill, input.border, border_mix);
-    var alpha = color.a * coverage;
-    let mode = input.params.z;
-    if mode > 0.5 {
-        // Brand checker: 1px cells alternating inside a 2px tile, screen-anchored.
-        let cell = floor(pixel);
-        let on = (cell.x + cell.y) - 2.0 * floor((cell.x + cell.y) * 0.5);
-        if on < 0.5 {
-            discard;
-        }
-        if mode > 1.5 {
-            // Field: rise from the bottom edge, fading out toward the top.
-            let frac = (input.local.y + input.half_size.y) / max(input.half_size.y * 2.0, 1.0);
-            alpha = alpha * clamp(frac * frac, 0.0, 1.0);
-        }
-    }
+    let alpha = color.a * coverage;
     return vec4<f32>(color.rgb, alpha);
 }

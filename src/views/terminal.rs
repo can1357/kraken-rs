@@ -2,7 +2,7 @@ use crate::{
     app::state::AppState,
     term::{Cell, TerminalColor},
     ui::{
-        Color, FontFace, Rect, Scene, Theme,
+        Color, FontFace, RADIUS_LG, Rect, Scene, Theme,
         action::{CursorHint, ResizeTarget, UiAction},
     },
 };
@@ -37,7 +37,7 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
             theme.text_muted,
             12.0,
             16.0,
-            FontFace::Terminal,
+            FontFace::Sans,
         );
         return;
     };
@@ -50,7 +50,7 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
         (rect.width - PADDING * 2.0).max(0.0),
         (rect.height - PADDING * 2.0).max(0.0),
     );
-    scene.rect(0, clip, rect, theme.input);
+    scene.rounded_rect(0, clip, rect, theme.input, theme.border, RADIUS_LG, 1.0);
     for row in 0..snapshot.rows {
         if row as f32 * cell_height >= clip.height {
             break;

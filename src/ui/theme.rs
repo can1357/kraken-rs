@@ -1,49 +1,55 @@
 use crate::ui::geometry::Color;
 
-/// Cyanotype design tokens shared by every view.
+/// Corner radius for chips, badges, checkboxes, and small wells.
+pub(crate) const RADIUS_SM: f32 = 3.0;
+/// Corner radius for buttons, inputs, tabs, and segmented controls.
+pub(crate) const RADIUS_MD: f32 = 4.0;
+/// Corner radius for cards, wells, and menus.
+pub(crate) const RADIUS_LG: f32 = 5.0;
+/// Corner radius for modals and popovers.
+pub(crate) const RADIUS_XL: f32 = 6.0;
+
+/// Nocturne design tokens shared by every view.
 ///
-/// Translated from the Stencil "Cyanotype" system: pure black chassis, hairline
-/// borders, cyan as the single interaction prime, purple strictly for
-/// live/presence, square geometry everywhere, and dither as a data material.
+/// A monochrome dark system: true-neutral grays with quiet tonal steps, near-
+/// square geometry, and a white interaction prime (dark text on white fills).
+/// Color survives only as data: graph lanes, file-status badges, search hits,
+/// and the purple live/presence signal.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Theme {
-    /// Page chassis — pure black.
+    /// Page chassis — deep slate behind every panel.
     pub(crate) window: Color,
-    /// Sunken wells (inputs, code, top chrome) — `--bg-sunken`.
+    /// Sunken strip behind the repository tabs.
     pub(crate) top_bar: Color,
-    /// First elevation — `--surface-1`.
-    pub(crate) toolbar: Color,
-    /// Primary panel surface — `--surface-1`.
+    /// Primary card surface.
     pub(crate) panel: Color,
-    /// Second elevation — `--surface-2`.
+    /// Secondary fill for subheaders, wells, and quiet chips.
     pub(crate) panel_alt: Color,
-    /// Third elevation for popovers/menus — `--surface-3`.
+    /// Elevated surface for popovers and menus (pair with `Scene::shadow`).
     pub(crate) surface_3: Color,
-    /// Table row at rest sits on the chassis.
-    pub(crate) row: Color,
-    /// Row hover — `--surface-1`.
+    /// Row hover wash.
     pub(crate) row_hover: Color,
-    /// Selected-row underlay — `--accent-muted` (pair with a cyan checker fill).
+    /// Selected-row fill — soft cobalt.
     pub(crate) row_selected: Color,
-    /// Hairline — `--border-subtle`.
+    /// Hairline between surfaces.
     pub(crate) border: Color,
-    /// Component outline — `--border-default`.
+    /// Component outline (buttons, inputs).
     pub(crate) border_strong: Color,
-    /// Emphasized outline — `--border-strong`.
+    /// Emphasized outline (hover, active wells).
     pub(crate) border_hard: Color,
     pub(crate) text: Color,
     pub(crate) text_muted: Color,
     pub(crate) text_dim: Color,
     pub(crate) text_disabled: Color,
-    /// Interaction prime — `--accent` cyan. Buttons, focus, selection, links.
+    /// Interaction prime — cobalt. Buttons, focus, selection, links.
     pub(crate) accent: Color,
-    /// `--accent-hover`.
+    /// Lighter cobalt for hovered fills.
     pub(crate) accent_hover: Color,
-    /// `--accent-active`.
+    /// Deeper cobalt for pressed fills.
     pub(crate) accent_active: Color,
-    /// `--accent-muted` fill for selected/active wells.
+    /// Soft cobalt fill for selected/active wells.
     pub(crate) accent_soft: Color,
-    /// Text/icon color on accent fills — pure black.
+    /// Text/icon color on accent fills.
     pub(crate) on_accent: Color,
     pub(crate) green: Color,
     pub(crate) green_muted: Color,
@@ -51,67 +57,65 @@ pub(crate) struct Theme {
     pub(crate) orange_muted: Color,
     pub(crate) red: Color,
     pub(crate) red_muted: Color,
-    /// Drop-target highlight while dragging a ref — olive/yellow like GitKraken.
+    /// Drop-target highlight while dragging a ref.
     pub(crate) yellow: Color,
     pub(crate) yellow_muted: Color,
-    /// `--signal` purple: live/presence ONLY (WIP, worktrees, collaborators).
+    /// Live/presence signal ONLY (WIP, worktrees, collaborators).
     pub(crate) purple: Color,
     pub(crate) purple_muted: Color,
-    /// Input well — `--bg-sunken`.
+    /// Input well fill — sunken.
     pub(crate) input: Color,
-    /// Modal scrim only; surfaces never carry drop shadows.
+    /// Modal scrim and shadow ink.
     pub(crate) shadow: Color,
     pub(crate) graph_lanes: [Color; 10],
 }
 
 impl Theme {
-    /// Returns the locked Cyanotype token set.
-    pub(crate) fn high_contrast() -> Self {
+    /// Returns the Nocturne token set.
+    pub(crate) fn dark() -> Self {
         Self {
-            window: Color::rgb(0, 0, 0),
-            top_bar: Color::rgb(5, 5, 8),
-            toolbar: Color::rgb(10, 10, 12),
-            panel: Color::rgb(10, 10, 12),
-            panel_alt: Color::rgb(18, 18, 22),
-            surface_3: Color::rgb(26, 26, 32),
-            row: Color::rgb(0, 0, 0),
-            row_hover: Color::rgb(10, 10, 12),
-            row_selected: Color::rgb(11, 40, 51),
-            border: Color::rgb(21, 21, 26),
-            border_strong: Color::rgb(42, 42, 53),
-            border_hard: Color::rgb(68, 68, 85),
-            text: Color::rgb(245, 245, 246),
-            text_muted: Color::rgb(163, 163, 172),
-            text_dim: Color::rgb(99, 99, 109),
-            text_disabled: Color::rgb(61, 61, 69),
-            accent: Color::rgb(68, 207, 255),
-            accent_hover: Color::rgb(117, 222, 255),
-            accent_active: Color::rgb(32, 166, 216),
-            accent_soft: Color::rgb(11, 40, 51),
-            on_accent: Color::rgb(0, 0, 0),
-            green: Color::rgb(74, 222, 128),
-            green_muted: Color::rgb(12, 36, 23),
-            orange: Color::rgb(245, 176, 74),
-            orange_muted: Color::rgb(42, 30, 10),
-            red: Color::rgb(244, 100, 74),
-            red_muted: Color::rgb(43, 15, 13),
-            yellow: Color::rgb(222, 200, 88),
-            yellow_muted: Color::rgb(48, 43, 16),
-            purple: Color::rgb(168, 106, 244),
-            purple_muted: Color::rgb(32, 13, 43),
-            input: Color::rgb(5, 5, 8),
-            shadow: Color::rgba(0, 0, 0, 180),
+            window: Color::rgb(7, 7, 7),
+            top_bar: Color::rgb(4, 4, 4),
+            panel: Color::rgb(12, 12, 12),
+            panel_alt: Color::rgb(17, 17, 17),
+            surface_3: Color::rgb(24, 24, 24),
+            row_hover: Color::rgb(17, 17, 17),
+            row_selected: Color::rgb(34, 34, 34),
+            border: Color::rgb(34, 34, 34),
+            border_strong: Color::rgb(48, 48, 48),
+            border_hard: Color::rgb(70, 70, 70),
+            text: Color::rgb(229, 229, 229),
+            text_muted: Color::rgb(163, 163, 163),
+            text_dim: Color::rgb(115, 115, 115),
+            text_disabled: Color::rgb(82, 82, 82),
+            accent: Color::rgb(237, 237, 237),
+            accent_hover: Color::rgb(255, 255, 255),
+            accent_active: Color::rgb(212, 212, 212),
+            accent_soft: Color::rgb(34, 34, 34),
+            on_accent: Color::rgb(10, 10, 10),
+            green: Color::rgb(76, 183, 130),
+            green_muted: Color::rgb(14, 42, 30),
+            orange: Color::rgb(247, 165, 80),
+            orange_muted: Color::rgb(52, 38, 15),
+            red: Color::rgb(235, 87, 87),
+            red_muted: Color::rgb(58, 22, 24),
+            yellow: Color::rgb(222, 196, 80),
+            yellow_muted: Color::rgb(56, 49, 18),
+            purple: Color::rgb(168, 120, 245),
+            purple_muted: Color::rgb(42, 33, 70),
+            input: Color::rgb(5, 5, 5),
+            shadow: Color::rgba(0, 0, 0, 150),
             graph_lanes: [
-                Color::rgb(50, 158, 174),
-                Color::rgb(69, 91, 188),
-                Color::rgb(112, 61, 181),
-                Color::rgb(157, 43, 165),
-                Color::rgb(168, 29, 96),
-                Color::rgb(153, 27, 22),
-                Color::rgb(196, 81, 62),
-                Color::rgb(222, 200, 88),
-                Color::rgb(132, 219, 86),
-                Color::rgb(78, 205, 152),
+                Color::rgb(64, 186, 205),
+                Color::rgb(106, 130, 232),
+                Color::rgb(150, 102, 240),
+                Color::rgb(196, 90, 222),
+                Color::rgb(235, 86, 148),
+                Color::rgb(232, 92, 85),
+                Color::rgb(240, 130, 54),
+                Color::rgb(222, 180, 60),
+                Color::rgb(150, 214, 80),
+                Color::rgb(66, 214, 160),
             ],
         }
     }

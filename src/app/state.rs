@@ -3180,9 +3180,6 @@ impl AppState {
             "share_branch_status" => {
                 self.settings.share_branch_status = !self.settings.share_branch_status;
             }
-            "show_toolbar_labels" => {
-                self.settings.show_toolbar_labels = !self.settings.show_toolbar_labels;
-            }
             "show_agents" => self.settings.show_agents = !self.settings.show_agents,
             "spell_check" => self.settings.spell_check = !self.settings.spell_check,
             "show_commit_author" => {
@@ -4227,7 +4224,7 @@ mod tests {
         state.focus = FocusField::CommitSummary;
         state.dispatch(UiAction::ToggleActionsMenu);
 
-        let scene = views::build_scene(&state, &Theme::high_contrast());
+        let scene = views::build_scene(&state, &Theme::dark());
         state.adopt_scene(&scene);
         let outside = state
             .hits
@@ -4336,7 +4333,7 @@ mod tests {
             .commit_body
             .set_text("Exercised stage, diff, and commit actions.");
         state.mouse = [900.0, 740.0];
-        state.adopt_scene(&views::build_scene(&state, &Theme::high_contrast()));
+        state.adopt_scene(&views::build_scene(&state, &Theme::dark()));
         let action = state
             .hits
             .iter()
@@ -4484,7 +4481,7 @@ mod tests {
                 .map(|commit| commit.id.clone())
         );
 
-        state.adopt_scene(&views::build_scene(&state, &Theme::high_contrast()));
+        state.adopt_scene(&views::build_scene(&state, &Theme::dark()));
         let controls = state
             .hits
             .iter()
@@ -4516,7 +4513,7 @@ mod tests {
         assert_eq!(state.focus, FocusField::None);
         assert!(state.search.is_empty());
         assert!(state.search_results().is_empty());
-        let scene = views::build_scene(&state, &Theme::high_contrast());
+        let scene = views::build_scene(&state, &Theme::dark());
         assert!(
             !scene
                 .hits

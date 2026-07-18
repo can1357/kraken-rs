@@ -7,15 +7,6 @@ use crate::ui::{
 /// Number of painter layers supported by the batched renderer.
 pub(crate) const LAYER_COUNT: usize = 5;
 
-/// Fill pattern for a rectangle: solid, brand 1px cyan-style checker, or a
-/// checker fading upward from the bottom edge (Cyanotype "field" aura).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Pattern {
-    Solid,
-    Checker,
-    Field,
-}
-
 /// A rounded rectangle rendered by the SDF fragment pipeline.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RoundedRect {
@@ -25,8 +16,10 @@ pub(crate) struct RoundedRect {
     pub(crate) border: Color,
     pub(crate) radius: f32,
     pub(crate) border_width: f32,
-    pub(crate) pattern: Pattern,
-    /// Samples the already-rendered background through the frosted popup pipeline.
+    /// Half-width of the edge falloff in pixels; `0.0` renders a crisp edge.
+    /// Soft edges are used for drop shadows under elevated surfaces.
+    pub(crate) softness: f32,
+    /// When set, the fill is composited from a blurred backdrop by the frost pipeline.
     pub(crate) frost: bool,
 }
 
@@ -49,8 +42,12 @@ pub(crate) struct ImageQuad {
 /// Font family intent for one text run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum FontFace {
-    /// Proportional application copy.
+    /// Proportional application copy at regular weight.
     Sans,
+    /// Proportional copy at medium weight — buttons, labels, active states.
+    SansMedium,
+    /// Proportional copy at semibold weight — titles and dialog headers.
+    SansBold,
     /// Private-use icon glyphs from the embedded Nerd Font face.
     Icons,
     /// Monospaced code and metadata.
@@ -129,7 +126,7 @@ impl Scene {
                 border,
                 radius,
                 border_width,
-                pattern: Pattern::Solid,
+                softness: 0.0,
                 frost: false,
             });
     }
@@ -158,40 +155,39 @@ impl Scene {
                 border,
                 radius,
                 border_width,
-                pattern: Pattern::Solid,
+                softness: 0.0,
                 frost: true,
             });
+    }
+
+    /// Draws a soft drop shadow beneath an elevated surface.
+    ///
+    /// Emit this before the surface itself: an ambient plate plus a wider key
+    /// plate approximate a blurred shadow without a separate blur pass.
+    pub(crate) fn shadow(&mut self, layer: usize, rect: Rect, clip: Rect, radius: f32) {
+        // (y offset, falloff half-width, alpha)
+        const PLATES: [(f32, f32, f32); 2] = [(2.0, 6.0, 0.30), (10.0, 28.0, 0.38)];
+        for (drop, softness, alpha) in PLATES {
+            let plate = Rect::new(rect.x, rect.y + drop, rect.width, rect.height);
+            let ink = Color::rgba(0, 0, 0, 255).with_alpha(alpha);
+            self.layers[layer.min(LAYER_COUNT - 1)]
+                .rectangles
+                .push(RoundedRect {
+                    rect: plate,
+                    clip,
+                    fill: ink,
+                    border: ink,
+                    radius: radius + softness * 0.5,
+                    border_width: 0.0,
+                    softness,
+                    frost: false,
+                });
+        }
     }
 
     /// Adds a square-cornered fill.
     pub(crate) fn rect(&mut self, layer: usize, rect: Rect, clip: Rect, fill: Color) {
         self.rounded_rect(layer, rect, clip, fill, fill, 0.0, 0.0);
-    }
-
-    /// Adds a square dithered fill (brand checker or bottom-rising field).
-    pub(crate) fn dither_rect(
-        &mut self,
-        layer: usize,
-        rect: Rect,
-        clip: Rect,
-        fill: Color,
-        pattern: Pattern,
-    ) {
-        let Some(rect) = rect.clipped(clip) else {
-            return;
-        };
-        self.layers[layer.min(LAYER_COUNT - 1)]
-            .rectangles
-            .push(RoundedRect {
-                rect,
-                clip,
-                fill,
-                border: fill,
-                radius: 0.0,
-                border_width: 0.0,
-                pattern,
-                frost: false,
-            });
     }
 
     /// Adds a quad whose fill interpolates horizontally between two colors.

@@ -7,7 +7,7 @@ use crate::{
     app::state::AppState,
     git::models::{DiffLineSelection, DiffRow, DiffRowKind, DiffScope},
     ui::{
-        Color, FontFace, Rect, Scene, Theme,
+        Color, FontFace, RADIUS_LG, RADIUS_MD, RADIUS_SM, Rect, Scene, Theme,
         action::{CursorHint, ScrollTarget, UiAction},
         icons,
         widgets::{divider, scrollbar, truncated_text},
@@ -20,7 +20,7 @@ pub(crate) const ROW_HEIGHT: f32 = 20.0;
 pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
     scene.rect(0, rect, scene.viewport(), theme.window);
     let header = Rect::new(rect.x, rect.y, rect.width, HEADER_HEIGHT);
-    scene.rect(1, header, rect, theme.panel_alt);
+    scene.rect(1, header, rect, theme.panel);
     divider(
         scene,
         Rect::new(header.x, header.bottom() - 1.0, header.width, 1.0),
@@ -37,7 +37,7 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
         Rect::new(header.x + 10.0, header.y, header.width - 390.0, 34.0),
         rect,
         theme.text,
-        12.0,
+        13.0,
         17.0,
         FontFace::Monospace,
     );
@@ -72,10 +72,10 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
             "UTF-8",
             [header.right() - 202.0, header.y + 12.0],
             Rect::new(header.right() - 206.0, header.y, 56.0, 33.0),
-            theme.text_dim,
-            10.0,
+            theme.text_muted,
+            11.0,
             14.0,
-            FontFace::Monospace,
+            FontFace::Sans,
         );
     }
 
@@ -96,18 +96,18 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
             scope,
             header,
             theme.accent_soft,
-            theme.accent_active.with_alpha(0.65),
-            0.0,
+            theme.accent.with_alpha(0.35),
+            RADIUS_SM,
             1.0,
         );
         scene.text(
             scope_label.to_uppercase(),
             [scope.x + 8.0, scope.y + 7.0],
             scope,
-            theme.text_muted,
+            theme.accent_active,
             10.0,
             14.0,
-            FontFace::Monospace,
+            FontFace::Sans,
         );
         scene.hit(
             scope,
@@ -119,6 +119,13 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
     }
     let file_tab = Rect::new(left_x, controls_y, 67.0, 28.0);
     let diff_tab = Rect::new(left_x + 67.0, controls_y, 75.0, 28.0);
+    let tab_track = Rect::new(
+        file_tab.x,
+        file_tab.y,
+        file_tab.width + diff_tab.width,
+        file_tab.height,
+    );
+    scene.rounded_rect(2, tab_track, header, theme.panel_alt, theme.border, RADIUS_MD, 1.0);
     segmented_tab(
         scene,
         file_tab,
@@ -180,6 +187,16 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
     );
     let unified = Rect::new(header.right() - 122.0, controls_y, 46.0, 28.0);
     let split = Rect::new(header.right() - 76.0, controls_y, 46.0, 28.0);
+    let layout_track = Rect::new(unified.x, unified.y, unified.width + split.width, unified.height);
+    scene.rounded_rect(
+        2,
+        layout_track,
+        header,
+        theme.panel_alt,
+        theme.border,
+        RADIUS_MD,
+        1.0,
+    );
     layout_icon_button(
         scene,
         unified,
@@ -205,13 +222,12 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
         rect.width,
         rect.height - HEADER_HEIGHT,
     );
-    scene.rounded_rect(0, canvas, rect, theme.input, theme.border_strong, 0.0, 1.0);
-    scene.dither_rect(
+    scene.rounded_rect(0, canvas, rect, theme.input, theme.border, RADIUS_LG, 1.0);
+    scene.rect(
         1,
         Rect::new(canvas.x + 1.0, canvas.y + 1.0, canvas.width - 2.0, 4.0),
         canvas,
-        theme.accent.with_alpha(0.6),
-        crate::ui::scene::Pattern::Checker,
+        theme.accent_soft.with_alpha(0.55),
     );
     if state.file_history {
         build_history_shell(scene, state, theme, canvas);
@@ -275,7 +291,7 @@ fn outline_green_button(
             theme.input
         },
         theme.green,
-        0.0,
+        RADIUS_MD,
         1.0,
     );
     scene.text(
@@ -283,9 +299,9 @@ fn outline_green_button(
         [rect.x + 10.0, rect.y + 7.0],
         rect,
         theme.green,
-        10.0,
+        11.0,
         15.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     scene.hit(rect, action, CursorHint::Pointer, Some(label));
 }
@@ -299,15 +315,25 @@ fn segmented_tab(
     mouse: [f32; 2],
     theme: &Theme,
 ) {
-    if rect.contains(mouse) && !active {
-        scene.rect(2, rect, scene.viewport(), theme.panel_alt);
-    }
     if active {
-        scene.rect(
+        scene.rounded_rect(
             2,
-            Rect::new(rect.x, rect.bottom() - 2.0, rect.width, 2.0),
+            rect.inset(2.0),
             scene.viewport(),
-            theme.accent,
+            theme.surface_3,
+            theme.border_strong,
+            RADIUS_MD - 2.0,
+            1.0,
+        );
+    } else if rect.contains(mouse) {
+        scene.rounded_rect(
+            2,
+            rect.inset(2.0),
+            scene.viewport(),
+            theme.row_hover,
+            theme.row_hover,
+            RADIUS_MD - 2.0,
+            0.0,
         );
     }
     scene.text(
@@ -315,9 +341,9 @@ fn segmented_tab(
         [rect.x + 8.0, rect.y + 7.0],
         rect,
         if active { theme.text } else { theme.text_muted },
-        10.0,
+        11.0,
         15.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     scene.hit(rect, action, CursorHint::Pointer, Some(label));
 }
@@ -334,11 +360,23 @@ fn ghost_button(
 ) {
     let hovered = enabled && rect.contains(mouse);
     if hovered {
-        scene.rect(2, rect, scene.viewport(), theme.panel_alt);
+        scene.rounded_rect(
+            2,
+            rect,
+            scene.viewport(),
+            theme.row_hover,
+            theme.row_hover,
+            RADIUS_SM,
+            0.0,
+        );
     }
+    let is_icon = label
+        .chars()
+        .next()
+        .is_some_and(|first| ('\u{E000}'..='\u{F8FF}').contains(&first));
     scene.text(
         label,
-        [rect.x + 8.0, rect.y + 7.0],
+        [rect.x + 8.0, rect.y + if is_icon { 6.0 } else { 7.0 }],
         rect,
         if !enabled {
             theme.text_disabled
@@ -347,9 +385,13 @@ fn ghost_button(
         } else {
             theme.text_muted
         },
-        10.0,
-        15.0,
-        FontFace::Monospace,
+        if is_icon { 13.0 } else { 11.0 },
+        if is_icon { 16.0 } else { 15.0 },
+        if is_icon {
+            FontFace::Monospace
+        } else {
+            FontFace::Sans
+        },
     );
     scene.hit(rect, action, CursorHint::Pointer, tooltip);
 }
@@ -363,15 +405,25 @@ fn layout_icon_button(
     theme: &Theme,
     tooltip: Option<&str>,
 ) {
-    if rect.contains(mouse) && !active {
-        scene.rect(2, rect, scene.viewport(), theme.panel_alt);
-    }
     if active {
-        scene.rect(
+        scene.rounded_rect(
             2,
-            Rect::new(rect.x, rect.bottom() - 2.0, rect.width, 2.0),
+            rect.inset(2.0),
             scene.viewport(),
-            theme.accent,
+            theme.surface_3,
+            theme.border_strong,
+            RADIUS_MD - 2.0,
+            1.0,
+        );
+    } else if rect.contains(mouse) {
+        scene.rounded_rect(
+            2,
+            rect.inset(2.0),
+            scene.viewport(),
+            theme.row_hover,
+            theme.row_hover,
+            RADIUS_MD - 2.0,
+            0.0,
         );
     }
     scene.text(
@@ -438,13 +490,13 @@ fn draw_file_content(
             continue;
         }
         if index % 2 == 1 {
-            scene.rect(0, row, code, theme.row.with_alpha(0.28));
+            scene.rect(0, row, code, theme.panel_alt.with_alpha(0.6));
         }
         draw_number(
             scene,
             row,
             u32::try_from(index.saturating_add(1)).ok(),
-            theme.text_disabled,
+            theme.text_dim,
             code,
         );
         draw_code(
@@ -564,40 +616,34 @@ fn draw_diff_rows(
             continue;
         }
         if row.kind == DiffRowKind::Hunk {
-            scene.rect(1, row_rect, code_clip, theme.accent_soft);
+            scene.rect(1, row_rect, code_clip, theme.panel_alt);
             scene.rect(
                 1,
                 Rect::new(row_rect.x, row_rect.y, row_rect.width, 1.0),
                 code_clip,
-                theme.accent_active,
+                theme.border,
             );
             scene.rect(
                 1,
                 Rect::new(row_rect.x, row_rect.bottom() - 1.0, row_rect.width, 1.0),
                 code_clip,
-                theme.accent_active,
+                theme.border,
             );
             if let Some(text_bounds) = row_rect.inset(3.0).clipped(code_clip) {
                 scene.text(
                     row.new_text.to_uppercase(),
-                    [row_rect.x + 9.0, row_rect.y + 5.0],
+                    [row_rect.x + 9.0, row_rect.y + 4.0],
                     text_bounds,
-                    theme.accent_active,
-                    10.0,
-                    14.0,
+                    theme.text_muted,
+                    12.0,
+                    15.0,
                     FontFace::Monospace,
                 );
             }
             continue;
         }
         if state.diff_selected_rows.contains(&index) {
-            scene.dither_rect(
-                1,
-                row_rect,
-                code_clip,
-                theme.accent.with_alpha(0.25),
-                crate::ui::scene::Pattern::Checker,
-            );
+            scene.rect(1, row_rect, code_clip, theme.row_selected);
             scene.rect(
                 1,
                 Rect::new(row_rect.x, row_rect.y, 2.0, row_rect.height),
@@ -727,22 +773,23 @@ fn draw_text_marks(
         state.diff_search_results().iter().enumerate()
     {
         if *match_row == row && *match_side == side {
-            let color = if match_index == state.diff_search_cursor {
-                theme.accent.with_alpha(0.58)
+            let current = match_index == state.diff_search_cursor;
+            let color = if current {
+                theme.yellow_muted
             } else {
-                theme.accent.with_alpha(0.28)
+                theme.yellow_muted.with_alpha(0.6)
             };
-            scene.rect(
-                2,
-                Rect::new(
-                    text_x + start.to_f32().unwrap_or(0.0) * 7.2,
-                    row_rect.y + 2.0,
-                    (end - start).to_f32().unwrap_or(0.0) * 7.2,
-                    row_rect.height - 4.0,
-                ),
-                clip,
-                color,
+            let mark = Rect::new(
+                text_x + start.to_f32().unwrap_or(0.0) * 7.2,
+                row_rect.y + 2.0,
+                (end - start).to_f32().unwrap_or(0.0) * 7.2,
+                row_rect.height - 4.0,
             );
+            if current {
+                scene.rounded_rect(2, mark, clip, color, theme.yellow, 3.0, 1.0);
+            } else {
+                scene.rounded_rect(2, mark, clip, color, color, 3.0, 0.0);
+            }
         }
     }
     if let Some(((start_row, selected_side, start_column), (end_row, _, end_column))) =
@@ -768,7 +815,7 @@ fn draw_text_marks(
                     row_rect.height - 4.0,
                 ),
                 clip,
-                theme.accent.with_alpha(0.42),
+                theme.accent.with_alpha(0.22),
             );
         }
     }
@@ -781,8 +828,8 @@ fn draw_diff_search(scene: &mut Scene, state: &AppState, theme: &Theme, header: 
         rect,
         header,
         theme.input,
-        theme.accent_active.with_alpha(0.8),
-        3.0,
+        theme.accent,
+        RADIUS_MD,
         1.0,
     );
     scene.text(
@@ -818,7 +865,7 @@ fn draw_diff_search(scene: &mut Scene, state: &AppState, theme: &Theme, header: 
         counter,
         [rect.right() + 8.0, rect.y + 7.0],
         Rect::new(rect.right() + 6.0, rect.y, 70.0, rect.height),
-        theme.text_dim,
+        theme.text_muted,
         10.0,
         14.0,
         FontFace::Sans,
@@ -896,7 +943,7 @@ fn draw_minimap(
         let y = strip.y + start.to_f32().unwrap_or(0.0) * scale;
         let height = ((index - start).to_f32().unwrap_or(0.0) * scale).max(3.0);
         let band = Rect::new(strip.x + 3.0, y, strip.width - 6.0, height);
-        scene.rect(3, band, strip, color);
+        scene.rect(3, band, strip, color.with_alpha(0.9));
         let target = Rect::new(strip.x, y - 3.0, strip.width, height + 6.0);
         if let Some(target) = target.clipped(strip) {
             scene.hit(
@@ -919,13 +966,13 @@ fn draw_minimap(
         3,
         window,
         strip,
-        theme.text.with_alpha(if hovered { 0.14 } else { 0.08 }),
+        theme.accent.with_alpha(0.18),
         if hovered {
             theme.accent
         } else {
-            theme.border_hard
+            theme.accent.with_alpha(0.5)
         },
-        0.0,
+        3.0,
         1.0,
     );
 }
@@ -994,12 +1041,12 @@ fn draw_line_gutter_action(
     } else {
         theme.green_muted
     };
-    scene.rounded_rect(3, affordance, clip, fill, fill, 0.0, 0.0);
+    scene.rounded_rect(3, affordance, clip, fill, fill, RADIUS_SM, 0.0);
     scene.text(
         if staged { icons::REMOVE } else { icons::ADD },
         [affordance.x + 4.0, affordance.y + 1.0],
         affordance_bounds,
-        theme.on_accent,
+        if staged { theme.red } else { theme.green },
         12.0,
         15.0,
         FontFace::Monospace,
@@ -1060,7 +1107,7 @@ fn draw_split_row(
     }
     draw_intraline(
         scene,
-        theme.red.with_alpha(0.5),
+        theme.red.with_alpha(0.25),
         old_rect,
         clip,
         row.old_mark,
@@ -1068,7 +1115,7 @@ fn draw_split_row(
     );
     draw_intraline(
         scene,
-        theme.green.with_alpha(0.5),
+        theme.green.with_alpha(0.25),
         new_rect,
         clip,
         row.new_mark,
@@ -1076,11 +1123,11 @@ fn draw_split_row(
     );
     let old_gutter = match row.kind {
         DiffRowKind::Deleted | DiffRowKind::Changed => theme.red,
-        DiffRowKind::Added | DiffRowKind::Context | DiffRowKind::Hunk => theme.text_disabled,
+        DiffRowKind::Added | DiffRowKind::Context | DiffRowKind::Hunk => theme.text_dim,
     };
     let new_gutter = match row.kind {
         DiffRowKind::Added | DiffRowKind::Changed => theme.green,
-        DiffRowKind::Deleted | DiffRowKind::Context | DiffRowKind::Hunk => theme.text_disabled,
+        DiffRowKind::Deleted | DiffRowKind::Context | DiffRowKind::Hunk => theme.text_dim,
     };
     draw_number(scene, old_rect, row.old_number, old_gutter, clip);
     draw_number(scene, new_rect, row.new_number, new_gutter, clip);
@@ -1161,12 +1208,12 @@ fn draw_inline_row(
     if row.kind != DiffRowKind::Context {
         scene.rect(1, row_rect, clip, fill);
     }
-    draw_intraline(scene, color.with_alpha(0.5), row_rect, clip, mark, text);
+    draw_intraline(scene, color.with_alpha(0.25), row_rect, clip, mark, text);
     let gutter_color = match row.kind {
         DiffRowKind::Added => theme.green,
         DiffRowKind::Deleted => theme.red,
         DiffRowKind::Changed => theme.orange,
-        DiffRowKind::Context | DiffRowKind::Hunk => theme.text_disabled,
+        DiffRowKind::Context | DiffRowKind::Hunk => theme.text_dim,
     };
     draw_number(scene, row_rect, number, gutter_color, clip);
     if let Some(prefix_bounds) = row_rect.clipped(clip) {
@@ -1238,7 +1285,7 @@ fn draw_intraline(
         clip,
         color,
         color,
-        0.0,
+        3.0,
         0.0,
     );
 }
@@ -1377,10 +1424,10 @@ fn centered_message(scene: &mut Scene, theme: &Theme, rect: Rect, message: impl 
             rect.width - 40.0,
             40.0,
         ),
-        theme.text_dim,
-        11.0,
+        theme.text_muted,
+        13.0,
         16.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
 }
 

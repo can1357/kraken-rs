@@ -6,11 +6,10 @@ use crate::{
     git::models::{CommitBranchRef, RefKind, RefLabel, WorktreeInfo},
     graph::avatars,
     ui::{
-        Color, FontFace, Rect, Scene, Theme,
+        Color, FontFace, RADIUS_LG, RADIUS_SM, RADIUS_XL, Rect, Scene, Theme,
         action::{CursorHint, ResizeTarget, ScrollTarget, UiAction},
         geometry::{COMMIT_HEADER_HEIGHT as HEADER_HEIGHT, COMMIT_ROW_HEIGHT as ROW_HEIGHT},
         icons,
-        scene::Pattern,
         widgets::{modal_text_input, scrollbar, truncated_text},
     },
 };
@@ -318,46 +317,29 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
                 row.height,
             );
             let trail = graph_trail(row, graph_clip, node_x);
+            if selected {
+                scene.rect(1, row, body, theme.row_selected);
+                // The selection cursor carries a white leading edge.
+                scene.rect(
+                    2,
+                    Rect::new(row.x, row.y, 2.0, row.height),
+                    body,
+                    theme.accent,
+                );
+            }
+            if current_match {
+                scene.rect(1, band, body, theme.yellow_muted);
+            } else if matched {
+                scene.rect(1, band, body, theme.yellow_muted.with_alpha(0.6));
+            } else if !selected && row.contains(state.hover()) {
+                scene.rect(1, band, body, theme.row_hover);
+            }
             draw_graph_trail(scene, trail, graph_clip, node_color);
             if hovered_reach
                 .as_ref()
                 .is_some_and(|reach| reach.contains(&index))
             {
                 scene.rect(1, trail, graph_clip, theme.accent.with_alpha(0.018));
-            }
-            if selected {
-                scene.dither_rect(
-                    1,
-                    band,
-                    body,
-                    theme.accent.with_alpha(0.25),
-                    Pattern::Checker,
-                );
-                scene.rect(
-                    2,
-                    Rect::new(band.x, band.y, 2.0, band.height),
-                    body,
-                    theme.accent,
-                );
-            }
-            if current_match {
-                scene.dither_rect(
-                    1,
-                    band,
-                    body,
-                    theme.accent.with_alpha(0.3),
-                    Pattern::Checker,
-                );
-            } else if matched {
-                scene.dither_rect(
-                    1,
-                    band,
-                    body,
-                    theme.accent.with_alpha(0.18),
-                    Pattern::Checker,
-                );
-            } else if !selected && row.contains(state.hover()) {
-                scene.rect(1, band, body, theme.panel);
             }
 
             let from_y = y + ROW_HEIGHT * 0.5;
@@ -555,7 +537,7 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
             body,
             theme.panel_alt,
             theme.accent_soft,
-            0.0,
+            RADIUS_XL,
             2.0,
         );
         scene.rounded_rect(
@@ -564,7 +546,7 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
             body,
             theme.window,
             theme.accent,
-            0.0,
+            RADIUS_LG,
             2.0,
         );
         scene.text(
@@ -606,33 +588,33 @@ fn build_header(
     sha: Rect,
 ) {
     let header = Rect::new(rect.x, rect.y, rect.width, HEADER_HEIGHT);
-    scene.rect(1, header, rect, theme.panel);
+    scene.rect(1, header, rect, theme.panel_alt);
     scene.text(
         "BRANCH / TAG",
         [refs.x + 8.0, refs.y + 6.0],
         refs,
         theme.text_dim,
-        10.5,
-        12.0,
-        FontFace::Monospace,
+        11.0,
+        13.0,
+        FontFace::SansMedium,
     );
     scene.text(
         "GRAPH",
         [graph.x + 8.0, graph.y + 6.0],
         graph,
         theme.text_dim,
-        10.5,
-        12.0,
-        FontFace::Monospace,
+        11.0,
+        13.0,
+        FontFace::SansMedium,
     );
     scene.text(
         "COMMIT MESSAGE",
         [message.x + 8.0, message.y + 6.0],
         message,
         theme.text_dim,
-        10.5,
-        12.0,
-        FontFace::Monospace,
+        11.0,
+        13.0,
+        FontFace::SansMedium,
     );
     if date.width > 0.0 {
         scene.text(
@@ -640,9 +622,9 @@ fn build_header(
             [date.x + 8.0, date.y + 6.0],
             date,
             theme.text_dim,
-            10.5,
-            12.0,
-            FontFace::Monospace,
+            11.0,
+            13.0,
+            FontFace::SansMedium,
         );
     }
     if sha.width > 0.0 {
@@ -651,9 +633,9 @@ fn build_header(
             [sha.x + 8.0, sha.y + 6.0],
             sha,
             theme.text_dim,
-            10.5,
-            12.0,
-            FontFace::Monospace,
+            11.0,
+            13.0,
+            FontFace::SansMedium,
         );
     }
     scene.rect(
@@ -700,7 +682,8 @@ fn build_header(
         // row hits, and graph nodes must not bleed through its opaque surface.
         scene.mask_hits(search);
         scene.mask_text(search);
-        scene.rounded_rect(3, search, rect, theme.panel_alt, theme.border, 0.0, 1.0);
+        scene.shadow(3, search, scene.viewport(), RADIUS_LG);
+        scene.rounded_rect(3, search, rect, theme.surface_3, theme.border, RADIUS_LG, 1.0);
 
         let results = state.search_results();
         modal_text_input(
@@ -729,7 +712,15 @@ fn build_header(
             (close, icons::CLOSE),
         ] {
             if button.contains(state.hover()) {
-                scene.rounded_rect(3, button, search, theme.panel, theme.panel, 0.0, 0.0);
+                scene.rounded_rect(
+                    3,
+                    button,
+                    search,
+                    theme.row_hover,
+                    theme.row_hover,
+                    RADIUS_SM,
+                    0.0,
+                );
             }
             scene.text(
                 label,
@@ -786,25 +777,7 @@ fn draw_wip_row(
     let message_x = graph.right();
     let selected = state.main_view == MainView::Wip && state.selected_commit.is_none();
     if selected {
-        let band = Rect::new(
-            message_x,
-            row.y,
-            (body.right() - message_x).max(0.0),
-            row.height,
-        );
-        scene.dither_rect(
-            1,
-            band,
-            body,
-            theme.accent.with_alpha(0.25),
-            Pattern::Checker,
-        );
-        scene.rect(
-            2,
-            Rect::new(band.x, band.y, 2.0, band.height),
-            body,
-            theme.accent,
-        );
+        scene.rect(1, row, body, theme.row_selected);
     }
     let (lane_origin, lane_spacing) = lane_geometry(graph);
     let head_layout = snapshot.head_id.as_ref().and_then(|head_id| {
@@ -868,12 +841,20 @@ fn draw_wip_row(
     }
     // Boxed `// WIP` placeholder chip plus change-kind counters.
     let chip = Rect::new(message_x + 8.0, y + 3.5, 82.0, ROW_HEIGHT - 7.0);
-    scene.rounded_rect(2, chip, body, theme.input, theme.border_strong, 3.0, 1.0);
+    scene.rounded_rect(
+        2,
+        chip,
+        body,
+        theme.purple_muted,
+        theme.purple.with_alpha(0.35),
+        RADIUS_SM,
+        1.0,
+    );
     scene.text(
         "// WIP",
         [chip.x + 10.0, chip.y + 4.0],
         clipped_text_bounds(chip.inset(2.0), body),
-        theme.text_muted,
+        theme.purple,
         11.0,
         14.0,
         FontFace::Monospace,
@@ -894,7 +875,7 @@ fn draw_wip_row(
             format!("{} {modified}", icons::DIFF_MODIFIED),
             [counter_x, y + 5.0],
             clipped_text_bounds(Rect::new(counter_x, y, 64.0, ROW_HEIGHT), body),
-            theme.orange,
+            theme.text_dim,
             11.5,
             15.0,
             FontFace::Sans,
@@ -906,7 +887,7 @@ fn draw_wip_row(
             format!("{} {added}", icons::DIFF_ADDED),
             [counter_x, y + 5.0],
             clipped_text_bounds(Rect::new(counter_x, y, 64.0, ROW_HEIGHT), body),
-            theme.green,
+            theme.text_dim,
             11.5,
             15.0,
             FontFace::Sans,
@@ -934,35 +915,17 @@ fn draw_worktree_wip_row(
     }
     let selected = state.selected_commit.as_deref() == worktree.target.as_deref();
     if selected {
-        scene.dither_rect(
-            1,
-            row,
-            body,
-            theme.accent.with_alpha(0.25),
-            Pattern::Checker,
-        );
-        scene.rect(
-            2,
-            Rect::new(row.x, row.y, 2.0, row.height),
-            body,
-            theme.accent,
-        );
+        scene.rect(1, row, body, theme.row_selected);
     }
-    scene.dither_rect(
-        1,
-        Rect::new(row.x, row.bottom() - 14.0, row.width, 14.0),
-        body,
-        theme.purple.with_alpha(0.5),
-        Pattern::Field,
-    );
+    scene.rect(1, row, body, theme.purple.with_alpha(0.10));
     let chip = Rect::new(refs.x + 8.0, y + 4.0, (refs.width - 16.0).min(190.0), 18.0);
     scene.rounded_rect(
         2,
         chip,
         body,
-        theme.purple.with_alpha(0.05),
         theme.purple_muted,
-        0.0,
+        theme.purple.with_alpha(0.35),
+        RADIUS_SM,
         1.0,
     );
     scene.text(
@@ -1010,7 +973,7 @@ fn draw_worktree_wip_row(
         graph_clip,
         theme.purple,
         theme.purple,
-        0.0,
+        3.0,
         0.0,
     );
     scene.text(
@@ -1062,8 +1025,8 @@ fn draw_graph_trail(scene: &mut Scene, trail: Rect, graph: Rect, color: Color) {
     let lift_x = (trail.right() - GRAPH_TRAIL_LIFT_WIDTH).max(trail.x);
     let base = Rect::new(trail.x, trail.y, lift_x - trail.x, trail.height);
     let lifted = Rect::new(lift_x, trail.y, trail.right() - lift_x, trail.height);
-    scene.rect(1, base, graph, color.with_alpha(0.028));
-    scene.rect(1, lifted, graph, color.with_alpha(0.032));
+    scene.rect(1, base, graph, color.with_alpha(0.05));
+    scene.rect(1, lifted, graph, color.with_alpha(0.06));
 
     // The short terminal slab sits above the long run. Its left edge casts
     // a narrow shadow back across the lower slab before the colored end cap.
@@ -1284,7 +1247,7 @@ fn draw_ref_chips(
             badge_clip,
             &chip.label,
             theme.accent,
-            theme.accent_soft,
+            theme.border_strong,
             Some(UiAction::BranchClick(chip.target.clone())),
             hovered,
             droppable,
@@ -1432,25 +1395,21 @@ fn draw_ref_chip(
     droppable: bool,
     layer: usize,
 ) {
-    // GitKraken chips are dark with a thin outline; the accent color lives in
-    // the border and icons, never as a filled body. While a ref drag is in
-    // flight every valid drop target glows olive, brightening under the pointer.
+    // Square chips with hairline outlines; while a ref drag is in flight
+    // every valid drop target fills soft yellow, brightening under the
+    // pointer.
     let (fill, border, border_width) = if droppable {
         (
             theme.yellow_muted,
-            if hovered {
-                theme.yellow
-            } else {
-                theme.yellow.with_alpha(0.5)
-            },
+            theme.yellow,
             if hovered { 1.6 } else { 1.0 },
         )
     } else if hovered {
         (theme.panel_alt, color, 1.4)
     } else {
-        (theme.input, border.with_alpha(0.7), 1.0)
+        (theme.panel, border, 1.0)
     };
-    scene.rounded_rect(layer, badge, clip, fill, border, 3.0, border_width);
+    scene.rounded_rect(layer, badge, clip, fill, border, RADIUS_SM, border_width);
     if !label.is_empty() {
         truncated_text(
             scene,

@@ -99,7 +99,7 @@ fn fs_frost(input: RectOutput) -> @location(0) vec4<f32> {
     if coverage <= 0.0 { discard; }
     let border_mix = select(0.0, 1.0, input.params.y > 0.0 && distance > -input.params.y);
     let tint = mix(input.fill, input.border, border_mix);
-    let tint_alpha = select(0.42, 1.0, border_mix > 0.5);
+    let tint_alpha = select(input.fill.a, 1.0, border_mix > 0.5);
     let backdrop = textureSample(source, source_sampler, pixel / globals.size);
     let color = mix(backdrop.rgb, tint.rgb, tint_alpha);
     return vec4(color, coverage);

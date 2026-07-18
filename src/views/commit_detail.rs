@@ -11,10 +11,9 @@ use crate::{
     git::models::{ChangeKind, CommitDetail, FileChange},
     graph::avatars,
     ui::{
-        FontFace, Rect, Scene, Theme,
+        FontFace, RADIUS_MD, RADIUS_SM, Rect, Scene, Theme,
         action::{CursorHint, ResizeTarget, ScrollTarget, UiAction},
         icons,
-        scene::Pattern,
         widgets::{button, checkbox, divider, scrollbar, truncated_text},
     },
 };
@@ -73,7 +72,7 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
         1,
         Rect::new(rect.x, rect.y, rect.width, message_bg_height),
         rect,
-        theme.input,
+        theme.panel_alt,
     );
 
     // Header top section
@@ -111,7 +110,7 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
         theme.text_dim,
         11.0,
         15.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     scene.text(
         commit_id,
@@ -201,7 +200,7 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
         theme.text,
         15.0,
         20.0,
-        FontFace::Sans,
+        FontFace::SansMedium,
     );
     y += 55.0;
 
@@ -287,6 +286,15 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
 
     let avatar = Rect::new(rect.x + 16.0, y, 28.0, 28.0);
     scene.image(2, avatar, clip, avatars::request(&detail.email));
+    scene.rounded_rect(
+        2,
+        avatar,
+        clip,
+        theme.window.with_alpha(0.0),
+        theme.border_hard.with_alpha(0.5),
+        14.0,
+        1.0,
+    );
     scene.text(
         &detail.author,
         [avatar.right() + 12.0, y - 2.0],
@@ -318,7 +326,7 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
         theme.text_dim,
         11.0,
         14.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
 
     scene.text(
@@ -330,7 +338,7 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
         theme.text_dim,
         11.0,
         15.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     let mut parent_x = rect.right() - 94.0;
     for parent in &detail.parents {
@@ -377,7 +385,7 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
         theme.orange,
         11.0,
         15.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     scene.text(
         format!("+ {added} ADDED").to_uppercase(),
@@ -388,12 +396,12 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
         theme.green,
         11.0,
         15.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
 
     // Path | Tree Segmented Control
     let toggle = Rect::new(rect.x + (rect.width - 120.0) / 2.0, y, 120.0, 26.0);
-    scene.rounded_rect(1, toggle, clip, theme.input, theme.border, 0.0, 1.0);
+    scene.rounded_rect(1, toggle, clip, theme.panel_alt, theme.panel_alt, RADIUS_MD, 0.0);
     let path_rect = Rect::new(toggle.x, toggle.y, 60.0, 26.0);
     let tree_rect = Rect::new(toggle.x + 60.0, toggle.y, 60.0, 26.0);
     let active_rect = if state.path_tree {
@@ -401,35 +409,27 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
     } else {
         path_rect
     };
-    scene.rect(
+    scene.rounded_rect(
         2,
-        Rect::new(
-            active_rect.x,
-            active_rect.bottom() - 2.0,
-            active_rect.width,
-            2.0,
-        ),
-        toggle,
-        theme.accent,
-    );
-    scene.rect(
-        2,
-        Rect::new(toggle.x + 59.0, toggle.y, 1.0, 26.0),
+        active_rect.inset(2.0),
         clip,
-        theme.border,
+        theme.surface_3,
+        theme.border_strong,
+        RADIUS_MD - 2.0,
+        1.0,
     );
     scene.text(
         "PATH",
         [path_rect.x + 12.0, path_rect.y + 6.0],
         path_rect.intersection(clip).unwrap_or(clip),
         if state.path_tree {
-            theme.text_dim
+            theme.text_muted
         } else {
             theme.text
         },
-        10.0,
+        11.0,
         14.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     scene.text(
         "TREE",
@@ -438,11 +438,11 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
         if state.path_tree {
             theme.text
         } else {
-            theme.text_dim
+            theme.text_muted
         },
-        10.0,
+        11.0,
         14.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
 
     scene.hit_clipped(
@@ -527,9 +527,9 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
                 .intersection(clip)
                 .unwrap_or(clip),
             theme.text_dim,
-            10.0,
+            11.0,
             14.0,
-            FontFace::Monospace,
+            FontFace::Sans,
         );
     }
     let scroll_content_height =
@@ -601,7 +601,15 @@ fn draw_folder_row(
         return;
     };
     if row.contains(state.hover()) {
-        scene.rect(1, row, clip, theme.panel_alt);
+        scene.rounded_rect(
+            1,
+            Rect::new(row.x + 4.0, row.y + 1.0, row.width - 8.0, row.height - 2.0),
+            clip,
+            theme.row_hover,
+            theme.row_hover,
+            RADIUS_SM,
+            0.0,
+        );
     }
     let x = row.x + 16.0 + depth.to_f32().unwrap_or(0.0) * 16.0;
     scene.text(
@@ -692,41 +700,52 @@ fn draw_file_row(
         .selected_file
         .as_ref()
         .is_some_and(|request| request.path == path);
+    let wash = Rect::new(row.x + 4.0, row.y + 1.0, row.width - 8.0, row.height - 2.0);
     if selected {
-        scene.dither_rect(
+        scene.rounded_rect(
             1,
-            row,
+            wash,
             clip,
-            theme.accent.with_alpha(0.25),
-            Pattern::Checker,
-        );
-        scene.rect(
-            2,
-            Rect::new(row.x, row.y, 2.0, row.height),
-            clip,
-            theme.accent,
+            theme.row_selected,
+            theme.row_selected,
+            RADIUS_SM,
+            0.0,
         );
     } else if row.contains(state.hover()) {
-        scene.rect(1, row, clip, theme.panel_alt);
+        scene.rounded_rect(1, wash, clip, theme.row_hover, theme.row_hover, RADIUS_SM, 0.0);
     }
 
-    let marker_color = change.map_or(theme.text_dim, |file| match file.kind {
-        ChangeKind::Added => theme.green,
-        ChangeKind::Deleted | ChangeKind::Conflicted => theme.red,
-        ChangeKind::Renamed => theme.text_muted,
-        ChangeKind::Modified | ChangeKind::TypeChanged => theme.orange,
+    let marker_style = change.map(|file| match file.kind {
+        ChangeKind::Added => (theme.green_muted, theme.green),
+        ChangeKind::Deleted | ChangeKind::Conflicted => (theme.red_muted, theme.red),
+        ChangeKind::Renamed => (theme.panel_alt, theme.text_muted),
+        ChangeKind::Modified | ChangeKind::TypeChanged => (theme.orange_muted, theme.orange),
     });
     let marker = change.map_or(icons::CIRCLE_SMALL, |file| file.kind.marker());
     let mut x = row.x + 16.0 + depth.to_f32().unwrap_or(0.0) * 16.0;
-    scene.text(
-        marker,
-        [x, row.y + 6.0],
-        row.inset(4.0).intersection(clip).unwrap_or(hit_row),
-        marker_color,
-        13.0,
-        16.0,
-        FontFace::Monospace,
-    );
+    if let Some((badge_fill, letter)) = marker_style {
+        let badge = Rect::new(x - 3.0, row.y + 4.0, 16.0, 16.0);
+        scene.rounded_rect(1, badge, hit_row, badge_fill, badge_fill, RADIUS_SM, 0.0);
+        scene.text(
+            marker,
+            [x + 1.0, row.y + 7.0],
+            hit_row,
+            letter,
+            10.0,
+            12.0,
+            FontFace::Monospace,
+        );
+    } else {
+        scene.text(
+            marker,
+            [x, row.y + 6.0],
+            row.inset(4.0).intersection(clip).unwrap_or(hit_row),
+            theme.text_dim,
+            13.0,
+            16.0,
+            FontFace::Monospace,
+        );
+    }
     x += 18.0;
     let advance = 7.2;
     let name = path.file_name().unwrap_or_default().to_string_lossy();

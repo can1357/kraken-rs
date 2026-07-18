@@ -4,10 +4,9 @@ use crate::{
     app::state::{AppState, FocusField},
     git::models::{ChangeKind, WorkingFile},
     ui::{
-        FontFace, Rect, Scene, Theme,
+        FontFace, RADIUS_MD, RADIUS_SM, Rect, Scene, Theme,
         action::{CursorHint, ScrollTarget, UiAction},
         icons,
-        scene::Pattern,
         widgets::{button, checkbox, divider, scrollbar},
     },
 };
@@ -152,15 +151,15 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
     let file_count = snapshot.working.files.len();
     let header = Rect::new(rect.x, rect.y, rect.width, 60.0);
     let live_pixel = Rect::new(header.x + 14.0, header.y + 12.0, 6.0, 6.0);
-    scene.rect(1, live_pixel, header, theme.purple);
+    scene.rounded_rect(1, live_pixel, header, theme.purple, theme.purple, 3.0, 0.0);
     scene.text(
         "WORKING TREE · LIVE",
         [live_pixel.right() + 6.0, header.y + 8.0],
         Rect::new(header.x + 14.0, header.y + 4.0, header.width - 28.0, 18.0),
         theme.purple,
-        10.0,
+        11.0,
         14.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     scene.text(
         format!(
@@ -173,10 +172,10 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
         theme.text,
         15.0,
         20.0,
-        FontFace::Sans,
+        FontFace::SansMedium,
     );
     let toggle = Rect::new(header.right() - 104.0, header.y + 25.0, 90.0, 26.0);
-    scene.rounded_rect(2, toggle, header, theme.input, theme.border, 0.0, 1.0);
+    scene.rounded_rect(2, toggle, header, theme.panel_alt, theme.border, RADIUS_MD, 1.0);
     let path_rect = Rect::new(toggle.x, toggle.y, 45.0, toggle.height);
     let tree_rect = Rect::new(path_rect.right(), toggle.y, 45.0, toggle.height);
     let active_rect = if state.path_tree {
@@ -184,29 +183,32 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
     } else {
         path_rect
     };
-    scene.rect(
+    scene.rounded_rect(
         2,
         Rect::new(
-            active_rect.x,
-            active_rect.bottom() - 2.0,
-            active_rect.width,
-            2.0,
+            active_rect.x + 2.0,
+            active_rect.y + 2.0,
+            active_rect.width - 4.0,
+            active_rect.height - 4.0,
         ),
         toggle,
-        theme.accent,
+        theme.surface_3,
+        theme.border_strong,
+        RADIUS_MD - 2.0,
+        1.0,
     );
     scene.text(
         "PATH",
         [path_rect.x + 9.0, path_rect.y + 6.0],
         path_rect,
         if state.path_tree {
-            theme.text_dim
+            theme.text_muted
         } else {
             theme.text
         },
-        10.0,
+        11.0,
         14.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     scene.text(
         "TREE",
@@ -215,11 +217,11 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
         if state.path_tree {
             theme.text
         } else {
-            theme.text_dim
+            theme.text_muted
         },
-        10.0,
+        11.0,
         14.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     scene.hit(
         toggle,
@@ -337,13 +339,39 @@ fn section_header(
     staged: bool,
 ) {
     let inner = Rect::new(header.x + 9.0, header.y, header.width - 18.0, header.height);
+    scene.rect(1, header, scene.viewport(), theme.panel_alt);
+    scene.rect(
+        1,
+        Rect::new(header.x, header.bottom() - 1.0, header.width, 1.0),
+        scene.viewport(),
+        theme.border,
+    );
+    let label = title.to_uppercase();
+    let label_width = label.chars().count() as f32 * 6.4;
     scene.text(
-        format!("{title} ({})", files.len()).to_uppercase(),
+        &label,
         [inner.x + 3.0, inner.y + 8.0],
         Rect::new(inner.x, inner.y, inner.width - 132.0, inner.height),
-        theme.text_dim,
-        11.0,
+        theme.text_muted,
+        12.0,
         16.0,
+        FontFace::Sans,
+    );
+    let count = files.len().to_string();
+    let pill = Rect::new(
+        inner.x + 3.0 + label_width + 8.0,
+        inner.y + 6.0,
+        count.chars().count() as f32 * 6.0 + 12.0,
+        16.0,
+    );
+    scene.rounded_rect(2, pill, header, theme.panel, theme.border, 8.0, 1.0);
+    scene.text(
+        &count,
+        [pill.x + 6.0, pill.y + 2.0],
+        pill,
+        theme.text_muted,
+        10.0,
+        12.0,
         FontFace::Monospace,
     );
     let selected_count = state.selected_working_files.len();
@@ -396,10 +424,10 @@ fn file_rows(
                 },
                 [empty.x + 6.0, empty.y + 6.0],
                 visible_empty,
-                theme.text_dim,
-                10.5,
-                14.0,
-                FontFace::Monospace,
+                theme.text_muted,
+                13.0,
+                16.0,
+                FontFace::Sans,
             );
         }
         return;
@@ -416,22 +444,19 @@ fn file_rows(
             .selected_file
             .as_ref()
             .is_some_and(|request| request.path == file.path);
+        let wash = Rect::new(row.x, row.y + 1.0, row.width, row.height - 2.0);
         if open || selected {
-            scene.dither_rect(
+            scene.rounded_rect(
                 1,
-                row,
+                wash,
                 view,
-                theme.accent.with_alpha(0.25),
-                Pattern::Checker,
-            );
-            scene.rect(
-                2,
-                Rect::new(row.x, row.y, 2.0, row.height),
-                view,
-                theme.accent,
+                theme.row_selected,
+                theme.row_selected,
+                RADIUS_SM,
+                0.0,
             );
         } else if row.contains(state.hover()) {
-            scene.rect(1, row, view, theme.panel_alt);
+            scene.rounded_rect(1, wash, view, theme.row_hover, theme.row_hover, RADIUS_SM, 0.0);
         }
         scene.hit_clipped(
             visible_row,
@@ -455,7 +480,7 @@ fn file_rows(
             } else {
                 theme.border_strong
             },
-            0.0,
+            5.0,
             1.0,
         );
         if selected {
@@ -463,7 +488,7 @@ fn file_rows(
                 icons::CHECK,
                 [check.x + 3.0, check.y],
                 check.intersection(view).unwrap_or(visible_row),
-                theme.window,
+                theme.on_accent,
                 12.0,
                 15.0,
                 FontFace::Sans,
@@ -478,15 +503,24 @@ fn file_rows(
         );
         let kind = if staged { file.staged } else { file.unstaged }.unwrap_or(ChangeKind::Modified);
         let label = working_path_label(file, state.path_tree);
+        let badge = Rect::new(row.x + 26.0, row.y + 4.0, 16.0, 16.0);
+        let (kind_fg, kind_bg) = change_colors(kind, theme);
+        scene.rounded_rect(
+            2,
+            badge,
+            view,
+            kind_bg,
+            kind_bg,
+            RADIUS_SM - 1.0,
+            0.0,
+        );
         scene.text(
             kind.marker(),
-            [row.x + 28.0, row.y + 4.5],
-            Rect::new(row.x + 26.0, row.y, 16.0, row.height)
-                .intersection(view)
-                .unwrap_or(visible_row),
-            change_color(kind, theme),
-            13.0,
-            16.0,
+            [badge.x + 5.0, badge.y + 2.0],
+            badge.intersection(view).unwrap_or(visible_row),
+            kind_fg,
+            10.0,
+            12.0,
             FontFace::Monospace,
         );
         scene.text(
@@ -563,7 +597,7 @@ fn build_commit_form(
         } else {
             theme.border_strong
         },
-        0.0,
+        RADIUS_MD,
         1.0,
     );
     let summary = Rect::new(unified.x, unified.y, unified.width, 34.0);
@@ -577,7 +611,7 @@ fn build_commit_form(
     if summary_focused {
         scene.rect(
             2,
-            Rect::new(summary.x + 1.0, summary.y + 1.0, 2.0, summary.height - 1.0),
+            Rect::new(summary.x + 1.5, summary.y + 5.0, 2.0, summary.height - 9.0),
             unified,
             theme.accent,
         );
@@ -585,10 +619,10 @@ fn build_commit_form(
         scene.rect(
             2,
             Rect::new(
-                description.x + 1.0,
-                description.y,
+                description.x + 1.5,
+                description.y + 4.0,
                 2.0,
-                description.height - 1.0,
+                description.height - 9.0,
             ),
             unified,
             theme.accent,
@@ -657,7 +691,7 @@ fn build_commit_form(
     );
     let sparkle = Rect::new(summary.right() - 30.0, summary.y + 5.0, 24.0, 24.0);
     if sparkle.contains(state.hover()) {
-        scene.rect(2, sparkle, unified, theme.panel_alt);
+        scene.rounded_rect(2, sparkle, unified, theme.panel_alt, theme.panel_alt, RADIUS_SM, 0.0);
     }
     scene.text(
         icons::SPARKLE,
@@ -756,7 +790,7 @@ fn build_commit_form(
         primary,
         rect,
         if hovered {
-            theme.green.with_alpha(0.16)
+            theme.green_muted
         } else {
             theme.panel
         },
@@ -765,7 +799,7 @@ fn build_commit_form(
         } else {
             theme.border_strong
         },
-        0.0,
+        RADIUS_MD,
         1.0,
     );
     let label_width = label.chars().count().to_f32().unwrap_or(0.0) * 6.8;
@@ -787,12 +821,12 @@ fn build_commit_form(
     }
     if state.selected_working_files.len() > 1 {
         let badge = Rect::new(primary.right() - 25.0, primary.y - 8.0, 22.0, 22.0);
-        scene.rounded_rect(3, badge, rect, theme.red, theme.red, 0.0, 0.0);
+        scene.rounded_rect(3, badge, rect, theme.red, theme.red, 11.0, 0.0);
         scene.text(
             state.selected_working_files.len().to_string(),
             [badge.x + 6.0, badge.y + 3.0],
             badge,
-            theme.text,
+            theme.on_accent,
             10.0,
             13.0,
             FontFace::Monospace,
@@ -818,11 +852,11 @@ fn working_path_label(file: &WorkingFile, tree: bool) -> String {
     }
 }
 
-fn change_color(kind: ChangeKind, theme: &Theme) -> crate::ui::Color {
+fn change_colors(kind: ChangeKind, theme: &Theme) -> (crate::ui::Color, crate::ui::Color) {
     match kind {
-        ChangeKind::Added => theme.green,
-        ChangeKind::Deleted | ChangeKind::Conflicted => theme.red,
-        ChangeKind::Renamed => theme.text_muted,
-        ChangeKind::Modified | ChangeKind::TypeChanged => theme.orange,
+        ChangeKind::Added => (theme.green, theme.green_muted),
+        ChangeKind::Deleted | ChangeKind::Conflicted => (theme.red, theme.red_muted),
+        ChangeKind::Renamed => (theme.text_muted, theme.panel_alt),
+        ChangeKind::Modified | ChangeKind::TypeChanged => (theme.orange, theme.orange_muted),
     }
 }

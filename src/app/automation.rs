@@ -30,7 +30,7 @@ pub(crate) fn run(repo: Option<PathBuf>, width: u32, height: u32, port: u16) -> 
     let mut server = AutomationServer {
         state: AppState::new(repo, width, height, None),
         renderer: pollster::block_on(OffscreenRenderer::new())?,
-        theme: Theme::high_contrast(),
+        theme: Theme::dark(),
     };
     server.refresh();
 
@@ -652,7 +652,7 @@ mod tests {
             CursorHint::Pointer,
             None,
         );
-        let theme = Theme::high_contrast();
+        let theme = Theme::dark();
         scene.text(
             "General",
             [112.0, 100.0],

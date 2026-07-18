@@ -68,7 +68,7 @@ pub(crate) fn run(options: LaunchOptions) -> Result<()> {
     }
     if let Some(view) = options.screenshot {
         let state = AppState::for_screenshot(options.repo, view, options.width, options.height)?;
-        let theme = Theme::high_contrast();
+        let theme = Theme::dark();
         let scene = views::build_scene(&state, &theme);
         let mut renderer = pollster::block_on(OffscreenRenderer::new())?;
         renderer.render_png(&scene, theme.window, &options.output)?;
@@ -105,7 +105,7 @@ impl NativeApplication {
             requested_height: options.height,
             state: None,
             renderer: None,
-            theme: Theme::high_contrast(),
+            theme: Theme::dark(),
             modifiers: ModifiersState::default(),
             event_loop_proxy,
             next_animation_frame: None,

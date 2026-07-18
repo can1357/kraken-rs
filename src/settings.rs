@@ -37,7 +37,6 @@ pub(crate) struct Settings {
     pub(crate) extended_logging: bool,
     pub(crate) proactive_conflict_detection: bool,
     pub(crate) share_branch_status: bool,
-    pub(crate) show_toolbar_labels: bool,
     pub(crate) sidebar_collapsed: bool,
     pub(crate) show_agents: bool,
     pub(crate) spell_check: bool,
@@ -90,7 +89,6 @@ impl Default for Settings {
             extended_logging: false,
             proactive_conflict_detection: false,
             share_branch_status: false,
-            show_toolbar_labels: true,
             sidebar_collapsed: false,
             show_agents: true,
             spell_check: true,
@@ -207,7 +205,6 @@ mod tests {
             extended_logging: true,
             proactive_conflict_detection: true,
             share_branch_status: true,
-            show_toolbar_labels: false,
             show_agents: false,
             spell_check: false,
             show_commit_author: true,
@@ -235,7 +232,6 @@ mod tests {
         assert_eq!(loaded.default_branch_name, "trunk");
         assert_eq!(loaded.initial_commits, 10_000);
         assert!(loaded.proactive_conflict_detection);
-        assert!(!loaded.show_toolbar_labels);
         assert_eq!(loaded.selected_profile.as_deref(), Some("Work"));
         assert_eq!(loaded.profiles[0].author_email, "ada@example.com");
         assert_eq!(loaded.ssh_private_key, "/tmp/id_ed25519");

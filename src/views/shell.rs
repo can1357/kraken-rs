@@ -5,7 +5,7 @@ use crate::{
     app::state::{AppState, ToolbarOp},
     git::models::BranchInfo,
     ui::{
-        Color, FontFace, Rect, Scene, Theme,
+        Color, FontFace, RADIUS_MD, RADIUS_SM, Rect, Scene, Theme,
         action::{CursorHint, ResizeTarget, ScrollTarget, UiAction},
         icons,
         widgets::{divider, scrollbar, truncated_text},
@@ -24,7 +24,8 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, layout: 
         build_status(scene, state, theme, layout.status);
         return;
     }
-    build_toolbar(scene, state, theme, layout.toolbar);
+    // The unified strip hosts the compact action cluster beside the tabs.
+    build_toolbar(scene, state, theme, layout.tabs);
     build_sidebar(scene, state, theme, layout.sidebar);
     build_status(scene, state, theme, layout.status);
 
@@ -88,11 +89,11 @@ fn build_tabs(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
     ] {
         scene.rounded_rect(
             2,
-            Rect::new(x, 14.0, 12.0, 12.0),
+            Rect::new(x, 16.0, 12.0, 12.0),
             rect,
             color,
             color,
-            0.0,
+            6.0,
             0.0,
         );
     }
@@ -102,24 +103,21 @@ fn build_tabs(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
     for (index, repo_tab) in state.tabs.iter().enumerate() {
         let tab = Rect::new(x, 4.0, 180.0, 36.0);
         let active = index == state.active_tab;
-        if active || tab.contains(state.hover()) {
-            scene.rect(
-                1,
-                tab,
-                tab_clip,
-                if active {
-                    theme.window
-                } else {
-                    theme.panel_alt
-                },
-            );
-        }
+        let pill = Rect::new(tab.x + 2.0, rect.y + 5.0, tab.width - 4.0, rect.height - 11.0);
         if active {
-            scene.rect(
-                2,
-                Rect::new(tab.x, tab.bottom() - 2.0, tab.width, 2.0),
+            // Minimal underline tab: text carries the state, a white rule
+            // anchors it to the strip's bottom hairline.
+            let bar = Rect::new(tab.x + 10.0, rect.bottom() - 2.0, tab.width - 20.0, 2.0);
+            scene.rect(2, bar, tab_clip, theme.accent);
+        } else if tab.contains(state.hover()) {
+            scene.rounded_rect(
+                1,
+                pill,
                 tab_clip,
-                theme.accent,
+                theme.row_hover,
+                theme.row_hover,
+                RADIUS_MD,
+                0.0,
             );
         }
         let icon = if repo_tab.path.is_some() {
@@ -134,9 +132,20 @@ fn build_tabs(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
             if active { theme.text } else { theme.text_muted },
             13.0,
             18.0,
-            FontFace::Sans,
+            FontFace::SansMedium,
         );
         let close = Rect::new(tab.right() - 26.0, tab.y + 5.0, 22.0, 24.0);
+        if close.contains(state.hover()) {
+            scene.rounded_rect(
+                2,
+                close,
+                tab_clip,
+                theme.row_hover,
+                theme.row_hover,
+                RADIUS_SM,
+                0.0,
+            );
+        }
         scene.text(
             icons::CLOSE,
             [close.x + 7.0, close.y + 3.0],
@@ -162,9 +171,9 @@ fn build_tabs(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
         );
         x += tab.width + 2.0;
     }
-    let plus = Rect::new(rect.right() - 216.0, 6.0, 28.0, 28.0);
+    let plus = Rect::new(x + 4.0, 8.0, 28.0, 28.0);
     if plus.contains(state.hover()) {
-        scene.rect(1, plus, rect, theme.panel_alt);
+        scene.rounded_rect(1, plus, rect, theme.row_hover, theme.row_hover, RADIUS_SM, 0.0);
     }
     scene.text(
         icons::ADD,
@@ -194,9 +203,9 @@ fn build_tabs(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
         ),
         (58.0, icons::GEAR, UiAction::OpenPreferences, "Preferences"),
     ] {
-        let target = Rect::new(right - offset, 4.0, 32.0, 32.0);
+        let target = Rect::new(right - offset, 6.0, 32.0, 32.0);
         if target.contains(state.hover()) {
-            scene.rect(1, target, rect, theme.panel_alt);
+            scene.rounded_rect(1, target, rect, theme.row_hover, theme.row_hover, RADIUS_SM, 0.0);
         }
         scene.text(
             icon,
@@ -213,13 +222,13 @@ fn build_tabs(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
         );
         scene.hit(target, action, CursorHint::Pointer, Some(tooltip));
     }
-    let profile = Rect::new(right - 180.0, 8.0, 32.0, 24.0);
-    scene.rounded_rect(2, profile, rect, theme.green, theme.green, 0.0, 0.0);
+    let profile = Rect::new(right - 180.0, 10.0, 32.0, 24.0);
+    scene.rounded_rect(2, profile, rect, theme.green, theme.green, RADIUS_SM, 0.0);
     scene.text(
         "PRO",
         [profile.x + 6.0, profile.y + 4.0],
         profile,
-        theme.window,
+        theme.on_accent,
         10.0,
         14.0,
         FontFace::Monospace,
@@ -227,12 +236,6 @@ fn build_tabs(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
 }
 
 fn build_toolbar(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
-    scene.rect(0, rect, scene.viewport(), theme.toolbar);
-    divider(
-        scene,
-        Rect::new(rect.x, rect.bottom() - 1.0, rect.width, 1.0),
-        theme,
-    );
     let repository = state
         .snapshot
         .as_ref()
@@ -241,45 +244,51 @@ fn build_toolbar(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect)
         .snapshot
         .as_ref()
         .map_or("branch", |snapshot| snapshot.head.as_str());
-    dropdown(
-        scene,
-        Rect::new(12.0, rect.y + 12.0, 120.0, 34.0),
-        "REPO",
-        repository,
-        None,
-        state,
-        theme,
-    );
-    dropdown(
-        scene,
-        Rect::new(140.0, rect.y + 12.0, 132.0, 34.0),
-        "BRANCH",
-        branch,
-        Some(UiAction::ToggleBranchMenu),
-        state,
-        theme,
-    );
-    let pr = Rect::new(280.0, rect.y + 14.0, 64.0, 30.0);
-    let pr_hovered = pr.contains(state.hover());
-    if pr_hovered {
-        scene.rect(1, pr, rect, theme.panel_alt);
-    }
-    scene.text(
-        format!("{}  PRs", icons::GIT_PULL_REQUEST),
-        [pr.x + 11.0, pr.y + 8.0],
-        pr,
+    let tabs_end = 90.0 + 180.0 * state.tabs.len().to_f32().unwrap_or(0.0) + 40.0;
+    let mut cursor = tabs_end + 12.0;
+    // The repo/branch wells and PRs button yield to the action cluster below
+    // 1150px; the sidebar and Branch action cover the same flows there.
+    if rect.width >= 1150.0 {
+        dropdown(
+            scene,
+            Rect::new(cursor, 7.0, 150.0, 30.0),
+            "REPO",
+            repository,
+            None,
+            state,
+            theme,
+        );
+        dropdown(
+            scene,
+            Rect::new(cursor + 162.0, 7.0, 160.0, 30.0),
+            "BRANCH",
+            branch,
+            Some(UiAction::ToggleBranchMenu),
+            state,
+            theme,
+        );
+        let pr = Rect::new(cursor + 334.0, 7.0, 60.0, 30.0);
+        let pr_hovered = pr.contains(state.hover());
         if pr_hovered {
-            theme.text
-        } else {
-            theme.text_muted
-        },
-        12.0,
-        16.0,
-        FontFace::Sans,
-    );
+            scene.rounded_rect(1, pr, rect, theme.row_hover, theme.row_hover, RADIUS_MD, 0.0);
+        }
+        scene.text(
+            format!("{}  PRs", icons::GIT_PULL_REQUEST),
+            [pr.x + 11.0, pr.y + 7.0],
+            pr,
+            if pr_hovered {
+                theme.text
+            } else {
+                theme.text_muted
+            },
+            11.0,
+            16.0,
+            FontFace::Sans,
+        );
+        cursor += 406.0;
+    }
 
-    let action_width = 52.0;
-    let action_start = 520.0_f32.min(rect.width * 0.42);
+    let action_width = 34.0;
     let busy = |op| state.op_in_flight(op);
     let actions = [
         (
@@ -339,11 +348,16 @@ fn build_toolbar(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect)
             false,
         ),
     ];
+    let actions_width = action_width * 8.0 + 14.0;
+    let action_start = (cursor + 12.0)
+        .max(rect.width * 0.42)
+        .min(rect.right() - 300.0 - actions_width)
+        .max(cursor + 12.0);
     for (index, (icon, label, action, enabled, busy)) in actions.into_iter().enumerate() {
         let x = action_start + index.to_f32().unwrap_or(0.0) * action_width;
         toolbar_action(
             scene,
-            Rect::new(x, rect.y + 4.0, action_width, rect.height - 8.0),
+            Rect::new(x, 7.0, action_width, 30.0),
             icon,
             label,
             action,
@@ -353,15 +367,10 @@ fn build_toolbar(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect)
             theme,
         );
     }
-    let pull_chevron = Rect::new(
-        action_start + 2.0 * action_width + 38.0,
-        rect.y + 8.0,
-        12.0,
-        rect.height - 16.0,
-    );
+    let pull_chevron = Rect::new(action_start + 2.0 * action_width + 24.0, 7.0, 12.0, 30.0);
     scene.text(
         icons::CHEVRON_DOWN,
-        [pull_chevron.x, pull_chevron.y + 8.0],
+        [pull_chevron.x, pull_chevron.y + 9.0],
         pull_chevron,
         theme.text_muted,
         11.0,
@@ -378,9 +387,9 @@ fn build_toolbar(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect)
     let right = rect.right();
     toolbar_action(
         scene,
-        Rect::new(right - 180.0, rect.y + 4.0, 52.0, rect.height - 8.0),
+        Rect::new(right - 330.0, 7.0, 46.0, 30.0),
         format!("LFS{}", icons::CHEVRON_DOWN),
-        "",
+        "LFS commands",
         UiAction::ToggleLfsMenu,
         true,
         false,
@@ -389,7 +398,7 @@ fn build_toolbar(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect)
     );
     toolbar_action(
         scene,
-        Rect::new(right - 120.0, rect.y + 4.0, 52.0, rect.height - 8.0),
+        Rect::new(right - 280.0, 7.0, 32.0, 30.0),
         icons::MENU,
         "Actions",
         UiAction::ToggleActionsMenu,
@@ -400,7 +409,7 @@ fn build_toolbar(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect)
     );
     toolbar_action(
         scene,
-        Rect::new(right - 60.0, rect.y + 4.0, 52.0, rect.height - 8.0),
+        Rect::new(right - 244.0, 7.0, 32.0, 30.0),
         icons::SEARCH,
         "Search",
         UiAction::ToggleSearch,
@@ -421,40 +430,40 @@ fn dropdown(
     state: &AppState,
     theme: &Theme,
 ) {
-    if rect.contains(state.hover()) {
-        scene.rounded_rect(
-            1,
-            rect,
-            scene.viewport(),
-            theme.panel_alt,
-            theme.border_strong,
-            0.0,
-            1.0,
-        );
-    } else {
-        scene.rounded_rect(
-            1,
-            rect,
-            scene.viewport(),
-            theme.input,
-            theme.border,
-            0.0,
-            1.0,
-        );
-    }
+    let hovered = rect.contains(state.hover());
+    scene.rounded_rect(
+        1,
+        rect,
+        scene.viewport(),
+        theme.panel,
+        if hovered {
+            theme.border_hard
+        } else {
+            theme.border_strong
+        },
+        RADIUS_MD,
+        1.0,
+    );
+    // Single-line well: dim caption, value, chevron on one baseline.
+    let caption_width = caption.len().to_f32().unwrap_or(0.0) * 5.2 + 6.0;
     scene.text(
         caption,
-        [rect.x + 8.0, rect.y + 4.0],
+        [rect.x + 9.0, rect.y + 9.0],
         rect,
         theme.text_dim,
-        10.0,
+        9.0,
         12.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     scene.text(
         format!("{value}  {}", icons::CHEVRON_DOWN),
-        [rect.x + 8.0, rect.y + 16.0],
-        Rect::new(rect.x + 8.0, rect.y + 16.0, rect.width - 16.0, 18.0),
+        [rect.x + 9.0 + caption_width, rect.y + 7.0],
+        Rect::new(
+            rect.x + 9.0 + caption_width,
+            rect.y,
+            (rect.width - caption_width - 18.0).max(0.0),
+            rect.height,
+        ),
         theme.text,
         12.0,
         16.0,
@@ -479,7 +488,15 @@ fn toolbar_action(
 ) {
     let hovered = enabled && rect.contains(state.hover());
     if hovered {
-        scene.rect(1, rect, scene.viewport(), theme.panel_alt);
+        scene.rounded_rect(
+            1,
+            rect,
+            scene.viewport(),
+            theme.row_hover,
+            theme.row_hover,
+            RADIUS_MD,
+            0.0,
+        );
     }
     let color = if enabled {
         if hovered {
@@ -493,7 +510,7 @@ fn toolbar_action(
     if busy {
         spinner(
             scene,
-            [rect.x + rect.width * 0.5, rect.y + 17.0],
+            [rect.x + rect.width * 0.5, rect.y + rect.height * 0.5],
             6.5,
             state.animation_time(),
             theme.text_muted,
@@ -501,7 +518,7 @@ fn toolbar_action(
     } else {
         scene.text(
             icon,
-            [rect.x + (rect.width - 15.0) / 2.0, rect.y + 8.0],
+            [rect.x + (rect.width - 15.0) / 2.0, rect.y + 7.0],
             rect,
             color,
             16.0,
@@ -509,22 +526,8 @@ fn toolbar_action(
             FontFace::Sans,
         );
     }
-    if state.settings.show_toolbar_labels && !label.is_empty() {
-        scene.text(
-            label,
-            [
-                rect.x + (rect.width - label.len().to_f32().unwrap_or(0.0) * 5.5) / 2.0,
-                rect.y + 30.0,
-            ],
-            Rect::new(rect.x, rect.y + 30.0, rect.width, 18.0),
-            color,
-            10.0,
-            14.0,
-            FontFace::Sans,
-        );
-    }
     if enabled {
-        let tooltip = (!state.settings.show_toolbar_labels && !label.is_empty()).then_some(label);
+        let tooltip = (!label.is_empty()).then_some(label);
         scene.hit(rect, action, CursorHint::Pointer, tooltip);
     }
 }
@@ -566,7 +569,7 @@ fn build_sidebar(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect)
     }
     let collapse = Rect::new(rect.x + 10.0, rect.y + 12.0, 26.0, 26.0);
     if collapse.contains(state.hover()) {
-        scene.rect(1, collapse, clip, theme.panel_alt);
+        scene.rounded_rect(1, collapse, clip, theme.row_hover, theme.row_hover, RADIUS_SM, 0.0);
     }
     scene.text(
         icons::CHEVRON_LEFT,
@@ -585,25 +588,19 @@ fn build_sidebar(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect)
         Some("Collapse sidebar"),
     );
     let toggle = Rect::new(rect.x + 44.0, rect.y + 12.0, rect.width - 56.0, 26.0);
-    scene.rounded_rect(1, toggle, clip, theme.input, theme.border_strong, 0.0, 1.0);
+    scene.rounded_rect(1, toggle, clip, theme.panel_alt, theme.panel_alt, RADIUS_MD, 0.0);
     let list = Rect::new(
         toggle.x + 2.0,
         toggle.y + 2.0,
         toggle.width * 0.5 - 2.0,
         22.0,
     );
-    scene.rect(2, list, clip, theme.panel_alt);
-    scene.rect(
-        3,
-        Rect::new(list.x, list.bottom() - 2.0, list.width, 2.0),
-        clip,
-        theme.accent,
-    );
+    scene.rounded_rect(2, list, clip, theme.surface_3, theme.border_strong, RADIUS_MD - 2.0, 1.0);
     scene.text(
         format!("{}  List", icons::LIST_TREE),
         [list.x + 32.0, list.y + 3.0],
         list,
-        theme.accent,
+        theme.text,
         11.0,
         15.0,
         FontFace::Sans,
@@ -627,12 +624,12 @@ fn build_sidebar(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect)
         [rect.x + 12.0, rect.y + 48.0],
         Rect::new(rect.x + 12.0, rect.y + 48.0, rect.width - 24.0, 18.0),
         theme.text_dim,
-        10.0,
-        14.0,
-        FontFace::Monospace,
+        11.0,
+        15.0,
+        FontFace::Sans,
     );
     let filter = sidebar_filter_rect(rect);
-    scene.rounded_rect(1, filter, clip, theme.input, theme.border, 0.0, 1.0);
+    scene.rounded_rect(1, filter, clip, theme.input, theme.border_strong, RADIUS_MD, 1.0);
     let filter_label = if state.branch_filter.is_empty() {
         format!("FILTER ({}+OPTION+F)", icons::KEY_COMMAND)
     } else {
@@ -902,7 +899,7 @@ fn sidebar_rail_entries(state: &AppState) -> [(&'static str, &'static str, usize
 fn build_sidebar_rail(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect, clip: Rect) {
     let toggle = Rect::new(rect.x + 9.0, rect.y + 12.0, 26.0, 26.0);
     if toggle.contains(state.hover()) {
-        scene.rect(1, toggle, clip, theme.panel_alt);
+        scene.rounded_rect(1, toggle, clip, theme.row_hover, theme.row_hover, RADIUS_SM, 0.0);
     }
     scene.text(
         icons::CHEVRON_RIGHT,
@@ -927,7 +924,7 @@ fn build_sidebar_rail(scene: &mut Scene, state: &AppState, theme: &Theme, rect: 
             break;
         }
         if cell.contains(state.hover()) {
-            scene.rect(1, cell, clip, theme.panel_alt);
+            scene.rounded_rect(1, cell, clip, theme.row_hover, theme.row_hover, RADIUS_SM, 0.0);
         }
         scene.text(
             icon,
@@ -1320,7 +1317,13 @@ fn draw_sidebar_section_header(
         return;
     }
     if section.header.contains(state.hover()) {
-        scene.rect(1, section.header, clip, theme.panel_alt);
+        let wash = Rect::new(
+            section.header.x + 4.0,
+            section.header.y + 2.0,
+            section.header.width - 8.0,
+            section.header.height - 4.0,
+        );
+        scene.rounded_rect(1, wash, clip, theme.row_hover, theme.row_hover, RADIUS_SM, 0.0);
     }
     scene.text(
         if section.collapsed {
@@ -1345,19 +1348,15 @@ fn draw_sidebar_section_header(
             section.header.height,
         ),
         theme.text_dim,
-        10.0,
+        11.0,
         15.0,
-        FontFace::Monospace,
+        FontFace::SansMedium,
     );
+    let count_x = section.header.right() - 42.0;
     scene.text(
         section.count.to_string(),
-        [section.header.right() - 34.0, section.header.y + 7.0],
-        Rect::new(
-            section.header.right() - 38.0,
-            section.header.y,
-            34.0,
-            section.header.height,
-        ),
+        [count_x + 8.0, section.header.y + 7.0],
+        Rect::new(count_x, section.header.y, 34.0, 18.0),
         theme.text_dim,
         10.0,
         14.0,
@@ -1380,9 +1379,15 @@ fn draw_sidebar_section_header(
             16.0,
         );
         let hovered = button.contains(state.hover());
-        if hovered {
-            scene.rounded_rect(1, button, clip, theme.panel, theme.border_strong, 0.0, 1.0);
-        }
+        scene.rounded_rect(
+            1,
+            button,
+            clip,
+            if hovered { theme.row_hover } else { theme.panel_alt },
+            theme.border_strong,
+            RADIUS_SM,
+            1.0,
+        );
         scene.text(
             icons::ADD,
             [button.x + 3.0, button.y + 1.0],
@@ -1516,7 +1521,15 @@ fn sidebar_folder_row(
     let row = Rect::new(clip.x + 6.0, y, clip.width - 12.0, SIDEBAR_ROW_HEIGHT);
     if let Some(visible_row) = row.intersection(clip) {
         if visible_row.contains(state.hover()) {
-            scene.rect(1, visible_row, clip, theme.panel_alt);
+            scene.rounded_rect(
+                1,
+                visible_row,
+                clip,
+                theme.row_hover,
+                theme.row_hover,
+                RADIUS_SM,
+                0.0,
+            );
         }
         let x = row.x + 8.0 + depth.to_f32().unwrap_or(0.0) * 12.0;
         scene.text(
@@ -1596,20 +1609,29 @@ fn sidebar_row(
                 } else {
                     theme.yellow_muted
                 },
-                2.0,
+                RADIUS_SM,
                 if hovered { 1.4 } else { 0.0 },
             );
         } else if selected {
-            scene.rect(
-                2,
-                Rect::new(row.x, row.y, 2.0, row.height)
-                    .intersection(clip)
-                    .unwrap_or(visible_row),
+            scene.rounded_rect(
+                1,
+                visible_row,
                 clip,
-                theme.accent,
+                theme.accent_soft,
+                theme.accent_soft,
+                RADIUS_SM,
+                0.0,
             );
         } else if visible_row.contains(state.hover()) {
-            scene.rect(1, visible_row, clip, theme.panel_alt);
+            scene.rounded_rect(
+                1,
+                visible_row,
+                clip,
+                theme.row_hover,
+                theme.row_hover,
+                RADIUS_SM,
+                0.0,
+            );
         }
         let x = row.x + 10.0 + depth.to_f32().unwrap_or(0.0) * 12.0;
         let text_color = if selected { theme.accent } else { theme.text };
@@ -1779,7 +1801,7 @@ mod tests {
 }
 
 fn build_status(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
-    scene.rect(0, rect, scene.viewport(), theme.top_bar);
+    scene.rect(0, rect, scene.viewport(), theme.window);
     divider(scene, Rect::new(rect.x, rect.y, rect.width, 1.0), theme);
     let left = if state.busy_jobs > 0 {
         format!(
@@ -1804,11 +1826,11 @@ fn build_status(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) 
         if state.busy_jobs > 0 {
             theme.accent
         } else {
-            theme.text_dim
+            theme.text_muted
         },
-        10.0,
-        14.0,
-        FontFace::Monospace,
+        11.0,
+        15.0,
+        FontFace::Sans,
     );
     scene.text(
         format!(
@@ -1819,9 +1841,9 @@ fn build_status(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) 
         ),
         [rect.right() - 240.0, rect.y + 4.0],
         Rect::new(rect.right() - 250.0, rect.y, 240.0, rect.height),
-        theme.text_dim,
-        10.0,
-        14.0,
-        FontFace::Monospace,
+        theme.text_muted,
+        11.0,
+        15.0,
+        FontFace::Sans,
     );
 }

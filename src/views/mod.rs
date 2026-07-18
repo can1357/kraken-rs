@@ -13,7 +13,7 @@ use crate::{
     app::state::{AppState, MainView},
     ui::{
         Rect, Scene, Theme,
-        geometry::{CONTENT_TOP, STATUS_BAR_HEIGHT, TAB_BAR_HEIGHT, TOOLBAR_HEIGHT},
+        geometry::{CONTENT_TOP, CHROME_HEIGHT, STATUS_BAR_HEIGHT},
         px,
     },
 };
@@ -35,8 +35,7 @@ impl Layout {
     pub(crate) fn for_state(state: &AppState) -> Self {
         let width = px(state.width);
         let height = px(state.height);
-        let tabs_height = TAB_BAR_HEIGHT;
-        let toolbar_height = TOOLBAR_HEIGHT;
+        let chrome_height = CHROME_HEIGHT;
         let status_height = STATUS_BAR_HEIGHT;
         let sidebar_width = if state.settings.sidebar_collapsed {
             shell::SIDEBAR_RAIL_WIDTH
@@ -47,7 +46,7 @@ impl Layout {
             .tabs
             .get(state.active_tab)
             .is_some_and(|tab| tab.path.is_none());
-        let content_top = if welcome { tabs_height } else { CONTENT_TOP };
+        let content_top = if welcome { chrome_height } else { CONTENT_TOP };
         let content_height = (height - content_top - status_height).max(0.0);
         let show_detail = !welcome
             && (state.selected_commit.is_some()
@@ -88,8 +87,10 @@ impl Layout {
         });
         let center_height = content_height - terminal.map_or(0.0, |rect| rect.height);
         Self {
-            tabs: Rect::new(0.0, 0.0, width, tabs_height),
-            toolbar: Rect::new(0.0, tabs_height, width, toolbar_height),
+            tabs: Rect::new(0.0, 0.0, width, chrome_height),
+            // Zero-height anchor rect: popup menus position against its
+            // bottom edge without the strip owning a second row.
+            toolbar: Rect::new(0.0, chrome_height, width, 0.0),
             sidebar: Rect::new(0.0, content_top, sidebar_width, content_height),
             center: Rect::new(center_x, content_top, center_width, center_height),
             detail,

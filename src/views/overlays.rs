@@ -4,7 +4,7 @@ use crate::{
     app::state::{AppState, FocusField, Overlay, add_remote_popup_rect},
     git::models::{DiffLineSelection, DiffRowKind, DiffScope},
     ui::{
-        FontFace, Rect, Scene, Theme,
+        FontFace, RADIUS_LG, RADIUS_SM, RADIUS_XL, Rect, Scene, Theme,
         action::{AddRemoteProvider, CursorHint, UiAction},
         geometry::px,
         icons,
@@ -80,7 +80,7 @@ fn draw_drag_ghost(
         scene.viewport(),
         theme.surface_3,
         theme.yellow,
-        4.0,
+        RADIUS_SM,
         1.2,
     );
     scene.text(
@@ -106,7 +106,7 @@ fn draw_drag_ghost(
 pub(super) fn build_global_feedback(scene: &mut Scene, state: &AppState, theme: &Theme) {
     if let Some(error) = &state.error {
         let backdrop = scene.viewport();
-        scene.rect(4, backdrop, backdrop, theme.shadow.with_alpha(0.68));
+        scene.rect(4, backdrop, backdrop, theme.shadow);
         let modal = Rect::new(
             backdrop.width * 0.5 - 200.0,
             backdrop.height * 0.5 - 120.0,
@@ -115,13 +115,13 @@ pub(super) fn build_global_feedback(scene: &mut Scene, state: &AppState, theme: 
         );
         popup_panel(scene, modal, theme);
         scene.text(
-            "GIT OPERATION FAILED",
-            [modal.x + 24.0, modal.y + 24.0],
-            Rect::new(modal.x + 24.0, modal.y + 20.0, modal.width - 80.0, 24.0),
+            "Git operation failed",
+            [modal.x + 24.0, modal.y + 22.0],
+            Rect::new(modal.x + 24.0, modal.y + 18.0, modal.width - 80.0, 26.0),
             theme.red,
-            12.0,
+            15.0,
             18.0,
-            FontFace::Monospace,
+            FontFace::SansBold,
         );
         divider(
             scene,
@@ -150,7 +150,15 @@ pub(super) fn build_global_feedback(scene: &mut Scene, state: &AppState, theme: 
         );
         let close_rect = Rect::new(modal.right() - 40.0, modal.y + 16.0, 24.0, 24.0);
         if close_rect.contains(state.mouse) {
-            scene.rect(4, close_rect, modal, theme.panel_alt);
+            scene.rounded_rect(
+                4,
+                close_rect,
+                modal,
+                theme.row_hover,
+                theme.row_hover,
+                RADIUS_SM,
+                0.0,
+            );
         }
         scene.text(
             icons::CLOSE,
@@ -175,15 +183,26 @@ pub(super) fn build_global_feedback(scene: &mut Scene, state: &AppState, theme: 
         );
     } else if let Some(toast) = &state.toast {
         let rect = Rect::new(24.0, scene.height - 64.0, 320.0, 40.0);
-        popup_surface(scene, rect, theme);
+        scene.shadow(4, rect, scene.viewport(), RADIUS_LG);
+        scene.rounded_rect(
+            4,
+            rect,
+            scene.viewport(),
+            theme.surface_3,
+            theme.border,
+            RADIUS_LG,
+            1.0,
+        );
+        let dot = Rect::new(rect.x + 14.0, rect.y + 16.0, 8.0, 8.0);
+        scene.rounded_rect(4, dot, rect, theme.green, theme.green, 4.0, 0.0);
         scene.text(
-            format!("{}  {toast}", icons::CHECK),
-            [rect.x + 12.0, rect.y + 12.0],
+            toast,
+            [rect.x + 30.0, rect.y + 12.0],
             rect.inset(8.0),
-            theme.green,
-            11.5,
+            theme.text,
+            12.0,
             16.0,
-            FontFace::Monospace,
+            FontFace::Sans,
         );
     }
 }
@@ -353,9 +372,9 @@ fn build_branches(scene: &mut Scene, state: &AppState, theme: &Theme) {
         [rect.x + 16.0, y + 2.0],
         Rect::new(rect.x + 8.0, y, rect.width - 16.0, 16.0),
         theme.text_dim,
-        10.0,
+        11.0,
         14.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     y += 20.0;
     if branches.is_empty() {
@@ -364,30 +383,25 @@ fn build_branches(scene: &mut Scene, state: &AppState, theme: &Theme) {
             [rect.x + 16.0, y + 8.0],
             Rect::new(rect.x + 16.0, y, rect.width - 32.0, 30.0),
             theme.text_dim,
-            10.0,
+            11.0,
             14.0,
-            FontFace::Monospace,
+            FontFace::Sans,
         );
     }
     for branch in branches {
         let row = Rect::new(rect.x + 8.0, y, rect.width - 16.0, 28.0);
         if branch.current {
-            scene.rect(4, row, rect, theme.row_selected);
-            scene.dither_rect(
+            scene.rounded_rect(
                 4,
                 row,
                 rect,
-                theme.accent.with_alpha(0.25),
-                crate::ui::scene::Pattern::Checker,
-            );
-            scene.rect(
-                5,
-                Rect::new(row.x, row.y, 2.0, row.height),
-                rect,
-                theme.accent,
+                theme.row_selected,
+                theme.row_selected,
+                RADIUS_SM,
+                0.0,
             );
         } else if row.contains(state.mouse) {
-            scene.rect(4, row, rect, theme.panel_alt);
+            scene.rounded_rect(4, row, rect, theme.row_hover, theme.row_hover, RADIUS_SM, 0.0);
         }
         scene.text(
             if branch.current {
@@ -446,9 +460,9 @@ fn build_lfs(scene: &mut Scene, state: &AppState, theme: &Theme, layout: &Layout
         [rect.x + 16.0, rect.y + 16.0],
         rect.inset(10.0),
         theme.text_dim,
-        10.0,
+        11.0,
         14.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     divider(
         scene,
@@ -465,7 +479,7 @@ fn build_lfs(scene: &mut Scene, state: &AppState, theme: &Theme, layout: &Layout
     for (entry, action) in entries {
         let row = Rect::new(rect.x + 8.0, y, rect.width - 16.0, 28.0);
         if row.contains(state.mouse) {
-            scene.rect(4, row, rect, theme.panel_alt);
+            scene.rounded_rect(4, row, rect, theme.row_hover, theme.row_hover, RADIUS_SM, 0.0);
         }
         scene.text(
             entry,
@@ -518,7 +532,7 @@ fn build_pull_options(scene: &mut Scene, state: &AppState, theme: &Theme, layout
     for (label, operation) in entries {
         let row = Rect::new(rect.x + 8.0, y, rect.width - 16.0, 30.0);
         if row.contains(state.mouse) {
-            scene.rect(4, row, rect, theme.panel_alt);
+            scene.rounded_rect(4, row, rect, theme.row_hover, theme.row_hover, RADIUS_SM, 0.0);
         }
         let selected = state.settings.default_pull_operation == operation;
         scene.text(
@@ -570,9 +584,9 @@ fn build_actions(scene: &mut Scene, state: &AppState, theme: &Theme, layout: &La
         [rect.x + 16.0, rect.y + 16.0],
         rect.inset(10.0),
         theme.text_dim,
-        10.0,
+        11.0,
         14.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     divider(
         scene,
@@ -597,7 +611,7 @@ fn build_actions(scene: &mut Scene, state: &AppState, theme: &Theme, layout: &La
     for (label, action) in actions {
         let row = Rect::new(rect.x + 8.0, y, rect.width - 16.0, 32.0);
         if row.contains(state.mouse) {
-            scene.rect(4, row, rect, theme.panel_alt);
+            scene.rounded_rect(4, row, rect, theme.row_hover, theme.row_hover, RADIUS_SM, 0.0);
         }
         scene.text(
             label,
@@ -625,9 +639,9 @@ fn build_tabs(scene: &mut Scene, state: &AppState, theme: &Theme) {
         [rect.x + 16.0, rect.y + 16.0],
         rect.inset(10.0),
         theme.text_dim,
-        10.0,
+        11.0,
         14.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     let search = Rect::new(rect.x + 8.0, rect.y + 40.0, rect.width - 16.0, 32.0);
     text_input(
@@ -655,24 +669,12 @@ fn build_tabs(scene: &mut Scene, state: &AppState, theme: &Theme) {
         let row = Rect::new(rect.x + 8.0, y, rect.width - 16.0, 32.0);
         let active = index == state.active_tab;
         if active || row.contains(state.mouse) {
-            scene.rect(
-                4,
-                row,
-                rect,
-                if active {
-                    theme.accent_soft
-                } else {
-                    theme.panel_alt
-                },
-            );
-        }
-        if active {
-            scene.rect(
-                5,
-                Rect::new(row.x, row.y, 2.0, row.height),
-                rect,
-                theme.accent,
-            );
+            let fill = if active {
+                theme.accent_soft
+            } else {
+                theme.row_hover
+            };
+            scene.rounded_rect(4, row, rect, fill, fill, RADIUS_SM, 0.0);
         }
         let icon = if tab.path.is_some() {
             icons::REPOSITORY
@@ -718,18 +720,18 @@ fn build_notifications(scene: &mut Scene, state: &AppState, theme: &Theme) {
         [rect.x + 20.0, rect.y + 20.0],
         Rect::new(rect.x, rect.y, rect.width, 40.0),
         theme.text_dim,
-        10.0,
+        11.0,
         14.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     scene.text(
         format!("ALL  {}", icons::CHEVRON_DOWN),
         [rect.right() - 52.0, rect.y + 22.0],
         Rect::new(rect.right() - 64.0, rect.y, 64.0, 40.0),
         theme.text_dim,
-        10.0,
+        11.0,
         14.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     divider(
         scene,
@@ -758,12 +760,12 @@ fn build_notifications(scene: &mut Scene, state: &AppState, theme: &Theme) {
             card,
             rect,
             if card.contains(state.mouse) {
-                theme.surface_3
+                theme.row_hover
             } else {
-                theme.panel_alt
+                theme.surface_3
             },
-            theme.border_strong,
-            0.0,
+            theme.border,
+            RADIUS_LG,
             1.0,
         );
         scene.text(
@@ -771,7 +773,7 @@ fn build_notifications(scene: &mut Scene, state: &AppState, theme: &Theme) {
             [card.x + 16.0, card.y + 12.0],
             Rect::new(card.x + 16.0, card.y + 12.0, card.width - 32.0, 24.0),
             theme.text,
-            12.0,
+            13.0,
             18.0,
             FontFace::Sans,
         );
@@ -780,7 +782,7 @@ fn build_notifications(scene: &mut Scene, state: &AppState, theme: &Theme) {
             [card.x + 16.0, card.y + 36.0],
             Rect::new(card.x + 16.0, card.y + 36.0, card.width - 32.0, 60.0),
             theme.text_muted,
-            11.5,
+            12.0,
             16.0,
             FontFace::Sans,
         );
@@ -796,21 +798,16 @@ fn build_create_branch(scene: &mut Scene, state: &AppState, theme: &Theme) {
         400.0,
         200.0,
     );
-    scene.rect(
-        3,
-        scene.viewport(),
-        scene.viewport(),
-        theme.shadow.with_alpha(0.68),
-    );
+    scene.rect(3, scene.viewport(), scene.viewport(), theme.shadow);
     popup_panel(scene, rect, theme);
     scene.text(
-        "CREATE A BRANCH",
-        [rect.x + 24.0, rect.y + 24.0],
-        Rect::new(rect.x + 24.0, rect.y + 24.0, rect.width - 48.0, 30.0),
+        "Create a branch",
+        [rect.x + 24.0, rect.y + 22.0],
+        Rect::new(rect.x + 24.0, rect.y + 22.0, rect.width - 48.0, 30.0),
         theme.text,
-        12.0,
+        15.0,
         18.0,
-        FontFace::Monospace,
+        FontFace::SansBold,
     );
     let input = Rect::new(rect.x + 24.0, rect.y + 68.0, rect.width - 48.0, 36.0);
     modal_text_input(
@@ -860,21 +857,16 @@ const ADD_REMOTE_PROVIDERS: [(AddRemoteProvider, &str, &str); 3] = [
 /// per-provider fields; submits via [`UiAction::AddRemote`].
 fn build_add_remote(scene: &mut Scene, state: &AppState, theme: &Theme) {
     let rect = add_remote_popup_rect(scene.width, scene.height);
-    scene.rect(
-        3,
-        scene.viewport(),
-        scene.viewport(),
-        theme.shadow.with_alpha(0.68),
-    );
+    scene.rect(3, scene.viewport(), scene.viewport(), theme.shadow);
     popup_panel(scene, rect, theme);
     scene.text(
-        "ADD REMOTE",
-        [rect.x + 24.0, rect.y + 20.0],
-        Rect::new(rect.x + 24.0, rect.y + 20.0, rect.width - 48.0, 24.0),
+        "Add remote",
+        [rect.x + 24.0, rect.y + 18.0],
+        Rect::new(rect.x + 24.0, rect.y + 18.0, rect.width - 48.0, 26.0),
         theme.text,
-        12.0,
+        15.0,
         18.0,
-        FontFace::Monospace,
+        FontFace::SansBold,
     );
     let mut tab_x = rect.x + 24.0;
     for (provider, icon, label) in ADD_REMOTE_PROVIDERS {
@@ -1001,7 +993,7 @@ fn build_add_remote(scene: &mut Scene, state: &AppState, theme: &Theme) {
             [rect.x + 24.0, y],
             Rect::new(rect.x + 24.0, y, rect.width - 48.0, 14.0),
             theme.text_muted,
-            10.0,
+            11.0,
             14.0,
             FontFace::Sans,
         );
@@ -1049,12 +1041,7 @@ fn build_rename_branch(scene: &mut Scene, state: &AppState, theme: &Theme, branc
         400.0,
         200.0,
     );
-    scene.rect(
-        3,
-        scene.viewport(),
-        scene.viewport(),
-        theme.shadow.with_alpha(0.68),
-    );
+    scene.rect(3, scene.viewport(), scene.viewport(), theme.shadow);
     popup_panel(scene, rect, theme);
     scene.text(
         format!("RENAME {branch}"),
@@ -1107,21 +1094,16 @@ fn build_create_tag(scene: &mut Scene, state: &AppState, theme: &Theme, target: 
         400.0,
         256.0,
     );
-    scene.rect(
-        3,
-        scene.viewport(),
-        scene.viewport(),
-        theme.shadow.with_alpha(0.68),
-    );
+    scene.rect(3, scene.viewport(), scene.viewport(), theme.shadow);
     popup_panel(scene, rect, theme);
     scene.text(
-        "CREATE TAG",
-        [rect.x + 24.0, rect.y + 20.0],
-        Rect::new(rect.x + 24.0, rect.y + 20.0, rect.width - 48.0, 24.0),
+        "Create tag",
+        [rect.x + 24.0, rect.y + 18.0],
+        Rect::new(rect.x + 24.0, rect.y + 18.0, rect.width - 48.0, 26.0),
         theme.text,
-        12.0,
+        15.0,
         18.0,
-        FontFace::Monospace,
+        FontFace::SansBold,
     );
     scene.text(
         target,
@@ -1185,21 +1167,16 @@ fn build_ai(scene: &mut Scene, state: &AppState, theme: &Theme) {
         560.0,
         360.0,
     );
-    scene.rect(
-        3,
-        scene.viewport(),
-        scene.viewport(),
-        theme.shadow.with_alpha(0.68),
-    );
+    scene.rect(3, scene.viewport(), scene.viewport(), theme.shadow);
     popup_panel(scene, rect, theme);
     scene.text(
-        "GITKRAKEN AI",
-        [rect.x + 24.0, rect.y + 24.0],
-        Rect::new(rect.x + 24.0, rect.y + 24.0, rect.width - 48.0, 30.0),
+        "GitKraken AI",
+        [rect.x + 24.0, rect.y + 22.0],
+        Rect::new(rect.x + 24.0, rect.y + 22.0, rect.width - 48.0, 30.0),
         theme.text,
-        12.0,
+        15.0,
         18.0,
-        FontFace::Monospace,
+        FontFace::SansBold,
     );
     divider(
         scene,
@@ -1239,7 +1216,15 @@ fn build_ai(scene: &mut Scene, state: &AppState, theme: &Theme) {
     );
     let close_rect = Rect::new(rect.right() - 44.0, rect.y + 16.0, 28.0, 28.0);
     if close_rect.contains(state.mouse) {
-        scene.rect(4, close_rect, rect, theme.panel_alt);
+        scene.rounded_rect(
+            4,
+            close_rect,
+            rect,
+            theme.row_hover,
+            theme.row_hover,
+            RADIUS_SM,
+            0.0,
+        );
     }
     scene.text(
         icons::CLOSE,
@@ -1265,20 +1250,31 @@ fn build_tooltip(scene: &mut Scene, state: &AppState, theme: &Theme) {
     if text.is_empty() {
         return;
     }
-    let estimated = text.chars().count().to_f32().unwrap_or(0.0) * 6.6 + 24.0;
-    let width = estimated.clamp(80.0, 560.0);
-    let lines = (estimated / (width - 24.0)).ceil().max(1.0);
-    let height = 16.0 + lines * 15.0;
+    // Width estimate: ~0.5em per glyph for proportional text at 12px, padded
+    // for the 12px horizontal inset on each side.
+    let text_width = text.chars().count().to_f32().unwrap_or(0.0) * 6.0;
+    let width = (text_width + 24.0).clamp(72.0, 560.0);
+    let lines = (text_width / (width - 24.0)).ceil().max(1.0);
+    let height = 12.0 + lines * 15.0;
     let x = (state.mouse[0] + 16.0).min(scene.width - width - 8.0);
     let y = (state.mouse[1] + 24.0).min(scene.height - height - 10.0);
     let rect = Rect::new(x, y, width, height);
-    popup_surface(scene, rect, theme);
+    scene.shadow(3, rect, scene.viewport(), RADIUS_LG);
+    scene.frosted_rounded_rect(
+        4,
+        rect,
+        scene.viewport(),
+        theme.surface_3.with_alpha(0.72),
+        theme.border_strong.with_alpha(0.5),
+        RADIUS_LG,
+        1.0,
+    );
     scene.text(
         text,
-        [rect.x + 12.0, rect.y + 8.0],
+        [rect.x + 12.0, rect.y + 6.0],
         rect.inset(4.0),
         theme.text,
-        10.5,
+        12.0,
         15.0,
         FontFace::Sans,
     );
@@ -1308,9 +1304,9 @@ fn build_context_menu(scene: &mut Scene, state: &AppState, theme: &Theme) {
             18.0,
         ),
         theme.text_dim,
-        10.0,
+        11.0,
         14.0,
-        FontFace::Monospace,
+        FontFace::Sans,
     );
     divider(
         scene,
@@ -1350,7 +1346,16 @@ fn build_context_menu(scene: &mut Scene, state: &AppState, theme: &Theme) {
             ),
             MenuRow::Parent { rect, label, open } => {
                 if *open {
-                    scene.rect(4, *rect, layout.panel, theme.panel_alt);
+                    let wash = Rect::new(rect.x + 4.0, rect.y, rect.width - 8.0, rect.height);
+                    scene.rounded_rect(
+                        4,
+                        wash,
+                        layout.panel,
+                        theme.accent_soft,
+                        theme.accent_soft,
+                        RADIUS_SM,
+                        0.0,
+                    );
                 }
                 scene.text(
                     *label,
@@ -1401,7 +1406,16 @@ fn menu_row(
 ) {
     let hovered = enabled && rect.contains(state.mouse);
     if hovered {
-        scene.rect(4, rect, scene.viewport(), theme.panel_alt);
+        let wash = Rect::new(rect.x + 4.0, rect.y, rect.width - 8.0, rect.height);
+        scene.rounded_rect(
+            4,
+            wash,
+            scene.viewport(),
+            theme.row_hover,
+            theme.row_hover,
+            RADIUS_SM,
+            0.0,
+        );
     }
     scene.text(
         label,
@@ -1423,18 +1437,19 @@ fn menu_row(
     }
 }
 
-/// Opaque elevated surface for context menus; unlike the frosted popup panel
-/// nothing bleeds through from the layers beneath.
+/// Frosted elevated surface for context menus: a drop shadow on layer 3 plus
+/// a blurred-backdrop glass panel on layer 4.
 fn menu_panel(scene: &mut Scene, rect: Rect, theme: &Theme) {
     scene.mask_hits(rect);
     scene.mask_text(rect);
-    scene.rounded_rect(
+    scene.shadow(3, rect, scene.viewport(), RADIUS_LG);
+    scene.frosted_rounded_rect(
         4,
         rect,
         scene.viewport(),
-        theme.surface_3,
-        theme.border_strong,
-        6.0,
+        theme.surface_3.with_alpha(0.72),
+        theme.border_strong.with_alpha(0.5),
+        RADIUS_LG,
         1.0,
     );
 }
@@ -1447,21 +1462,16 @@ fn build_edit_commit_message(scene: &mut Scene, state: &AppState, theme: &Theme)
         420.0,
         260.0,
     );
-    scene.rect(
-        3,
-        scene.viewport(),
-        scene.viewport(),
-        theme.shadow.with_alpha(0.68),
-    );
+    scene.rect(3, scene.viewport(), scene.viewport(), theme.shadow);
     popup_panel(scene, rect, theme);
     scene.text(
-        "EDIT COMMIT MESSAGE",
-        [rect.x + 24.0, rect.y + 22.0],
-        Rect::new(rect.x + 24.0, rect.y + 22.0, rect.width - 48.0, 24.0),
+        "Edit commit message",
+        [rect.x + 24.0, rect.y + 20.0],
+        Rect::new(rect.x + 24.0, rect.y + 20.0, rect.width - 48.0, 26.0),
         theme.text,
-        12.0,
+        15.0,
         18.0,
-        FontFace::Monospace,
+        FontFace::SansBold,
     );
     modal_text_input(
         scene,
@@ -1516,13 +1526,14 @@ pub(super) fn popup_panel(scene: &mut Scene, rect: Rect, theme: &Theme) {
 }
 
 fn popup_surface(scene: &mut Scene, rect: Rect, theme: &Theme) {
+    scene.shadow(3, rect, scene.viewport(), RADIUS_XL);
     scene.frosted_rounded_rect(
         4,
         rect,
         scene.viewport(),
-        theme.surface_3,
-        theme.border_strong,
-        4.0,
+        theme.surface_3.with_alpha(0.72),
+        theme.border_strong.with_alpha(0.5),
+        RADIUS_XL,
         1.0,
     );
 }

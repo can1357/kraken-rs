@@ -1,7 +1,7 @@
 use crate::{
     app::state::{AppState, Overlay},
     ui::{
-        FontFace, Rect, Scene, Theme,
+        FontFace, RADIUS_MD, RADIUS_SM, Rect, Scene, Theme,
         action::{CursorHint, UiAction},
         icons,
     },
@@ -294,7 +294,7 @@ pub(crate) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, skin: Pa
     let list = Rect::new(rect.x, input.bottom() + 2.0, rect.width, rect.height - 42.0);
     let viewport = scene.viewport();
     crate::views::overlays::popup_panel(scene, rect, theme);
-    scene.rounded_rect(4, input, viewport, theme.input, theme.accent, 4.0, 2.0);
+    scene.rounded_rect(4, input, viewport, theme.input, theme.accent, RADIUS_MD, 1.0);
 
     let prompt = match skin {
         PaletteSkin::General => "Search for commands and actions (e.g., Open Repo)",
@@ -370,7 +370,13 @@ pub(crate) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, skin: Pa
         );
         let hovered = row.contains(state.mouse);
         if hovered || row_index == palette.cursor {
-            scene.rect(4, row, list, theme.panel_alt);
+            let wash = Rect::new(row.x + 4.0, row.y + 1.0, row.width - 8.0, row.height - 2.0);
+            let fill = if row_index == palette.cursor {
+                theme.row_selected
+            } else {
+                theme.row_hover
+            };
+            scene.rounded_rect(4, wash, list, fill, fill, RADIUS_SM, 0.0);
         }
         let command = &commands(skin)[*command_index];
         scene.text(
@@ -414,15 +420,15 @@ fn draw_keys(scene: &mut Scene, row: Rect, keys: &[&str], theme: &Theme) {
         let width = key.chars().count() as f32 * 7.0 + 12.0;
         x -= width;
         let chip = Rect::new(x, row.y + 4.0, width, row.height - 8.0);
-        scene.rounded_rect(4, chip, row, theme.input, theme.border_strong, 3.0, 1.0);
+        scene.rounded_rect(4, chip, row, theme.panel_alt, theme.border, RADIUS_SM, 1.0);
         scene.text(
             *key,
             [chip.x + 6.0, chip.y + 3.0],
             chip,
             theme.text_muted,
-            10.0,
+            11.0,
             13.0,
-            FontFace::Sans,
+            FontFace::Monospace,
         );
         x -= 6.0;
     }

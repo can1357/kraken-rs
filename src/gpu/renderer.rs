@@ -3,15 +3,16 @@ use std::{collections::HashMap, mem, ops::Range};
 use anyhow::{Context, Result};
 use bytemuck::{Pod, Zeroable};
 use glyphon::{
-    Attrs, Buffer as TextBuffer, Cache, Color as GlyphColor, Family, FontSystem, Metrics,
-    Resolution, Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport,
+    Attrs, Buffer as TextBuffer, Cache, Color as GlyphColor, ColorMode, Family, FontSystem,
+    Metrics, Resolution, Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer,
+    Viewport, Weight,
 };
 use num_traits::ToPrimitive;
 use wgpu::util::DeviceExt;
 
 use crate::ui::{
     Color,
-    scene::{FontFace, LAYER_COUNT, Pattern, Scene, TextSpec},
+    scene::{FontFace, LAYER_COUNT, Scene, TextSpec},
 };
 
 #[repr(C)]
@@ -261,7 +262,6 @@ pub(crate) struct Renderer {
     rectangle_instances: DynamicBuffer,
     frost_instances: DynamicBuffer,
     mesh_vertices: DynamicBuffer,
-    rectangle_pipeline: wgpu::RenderPipeline,
     format: wgpu::TextureFormat,
     frost_layout: wgpu::BindGroupLayout,
     frost_sampler: wgpu::Sampler,
@@ -271,6 +271,7 @@ pub(crate) struct Renderer {
     blur_vertical_pipeline: wgpu::RenderPipeline,
     frost_pipeline: wgpu::RenderPipeline,
     frost_targets: Option<FrostTargets>,
+    rectangle_pipeline: wgpu::RenderPipeline,
     mesh_pipeline: wgpu::RenderPipeline,
     image_instances: DynamicBuffer,
     image_pipeline: wgpu::RenderPipeline,
@@ -314,6 +315,20 @@ impl Renderer {
                 count: None,
             }],
         });
+        let globals_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ui globals bind group"),
+            layout: &globals_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: globals.as_entire_binding(),
+            }],
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("ui pipeline layout"),
+            bind_group_layouts: &[Some(&globals_layout)],
+            immediate_size: 0,
+        });
+
         let frost_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("frost composite shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("frost.wgsl").into()),
@@ -417,19 +432,6 @@ impl Renderer {
             multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
             cache: None,
-        });
-        let globals_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("ui globals bind group"),
-            layout: &globals_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: globals.as_entire_binding(),
-            }],
-        });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("ui pipeline layout"),
-            bind_group_layouts: &[Some(&globals_layout)],
-            immediate_size: 0,
         });
 
         let rectangle_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -617,7 +619,11 @@ impl Renderer {
 
         let cache = Cache::new(device);
         let viewport = Viewport::new(device, &cache);
-        let mut text_atlas = TextAtlas::new(device, queue, &cache, format);
+        // `Web` blends glyph coverage in gamma space like native/browser text
+        // stacks; `Accurate` (linear) thins dark-on-light strokes and bloats
+        // light-on-dark ones on sRGB targets.
+        let mut text_atlas =
+            TextAtlas::with_color_mode(device, queue, &cache, format, ColorMode::Web);
         let glyphs = std::array::from_fn(|_| {
             TextRenderer::new(
                 &mut text_atlas,
@@ -636,17 +642,18 @@ impl Renderer {
                 wgpu::BufferUsages::VERTEX,
                 "rounded rectangle instances",
             ),
-            frost_instances: DynamicBuffer::new(
-                device,
-                wgpu::BufferUsages::VERTEX,
-                "frosted popup instances",
-            ),
             mesh_vertices: DynamicBuffer::new(
                 device,
                 wgpu::BufferUsages::VERTEX,
                 "line and curve vertices",
             ),
             rectangle_pipeline,
+            mesh_pipeline,
+            frost_instances: DynamicBuffer::new(
+                device,
+                wgpu::BufferUsages::VERTEX,
+                "frosted popup instances",
+            ),
             format,
             frost_layout,
             frost_sampler,
@@ -656,7 +663,6 @@ impl Renderer {
             blur_vertical_pipeline,
             frost_pipeline,
             frost_targets: None,
-            mesh_pipeline,
             image_instances: DynamicBuffer::new(
                 device,
                 wgpu::BufferUsages::VERTEX,
@@ -751,9 +757,11 @@ impl Renderer {
                 "frost backdrop",
                 wgpu::LoadOp::Clear(to_wgpu_color(clear)),
             );
+            // Layers 0..4 (including drop shadows on layer 3) render into the
+            // backdrop so glass shows a blurred copy of everything beneath it.
             self.draw_layers(
                 &mut pass,
-                0..3,
+                0..4,
                 &rectangle_ranges,
                 &mesh_ranges,
                 &image_ranges,
@@ -807,62 +815,13 @@ impl Renderer {
             }
             self.draw_layers(
                 &mut pass,
-                3..LAYER_COUNT,
+                4..LAYER_COUNT,
                 &rectangle_ranges,
                 &mesh_ranges,
                 &image_ranges,
             )?;
         }
         self.text_atlas.trim();
-        Ok(())
-    }
-
-    fn write_globals(&self, queue: &wgpu::Queue, width: u32, height: u32) {
-        queue.write_buffer(
-            &self.globals,
-            0,
-            bytemuck::bytes_of(&Globals {
-                size: [width as f32, height as f32],
-                padding: [0.0, 0.0],
-            }),
-        );
-    }
-
-    fn draw_layers(
-        &mut self,
-        pass: &mut wgpu::RenderPass<'_>,
-        layers: Range<usize>,
-        rectangle_ranges: &[Range<u32>; LAYER_COUNT],
-        mesh_ranges: &[Range<u32>; LAYER_COUNT],
-        image_ranges: &[Range<u32>; LAYER_COUNT],
-    ) -> Result<()> {
-        for layer in layers {
-            pass.set_bind_group(0, &self.globals_bind_group, &[]);
-            let rectangle_range = rectangle_ranges[layer].clone();
-            if !rectangle_range.is_empty() {
-                pass.set_pipeline(&self.rectangle_pipeline);
-                pass.set_vertex_buffer(0, self.quad.slice(..));
-                pass.set_vertex_buffer(1, self.rectangle_instances.buffer.slice(..));
-                pass.draw(0..6, rectangle_range);
-            }
-            let mesh_range = mesh_ranges[layer].clone();
-            if !mesh_range.is_empty() {
-                pass.set_pipeline(&self.mesh_pipeline);
-                pass.set_vertex_buffer(0, self.mesh_vertices.buffer.slice(..));
-                pass.draw(mesh_range, 0..1);
-            }
-            let image_range = image_ranges[layer].clone();
-            if !image_range.is_empty() {
-                pass.set_pipeline(&self.image_pipeline);
-                pass.set_bind_group(1, &self.avatar_bind_group, &[]);
-                pass.set_vertex_buffer(0, self.quad.slice(..));
-                pass.set_vertex_buffer(1, self.image_instances.buffer.slice(..));
-                pass.draw(0..6, image_range);
-            }
-            self.glyphs[layer]
-                .render(&self.text_atlas, &self.viewport, pass)
-                .context("render glyph atlas")?;
-        }
         Ok(())
     }
 
@@ -943,6 +902,55 @@ impl Renderer {
             blur_a_bind_group: make_bind_group("frost ping bind group", &blur_a_view),
             blur_b_bind_group: make_bind_group("frost pong bind group", &blur_b_view),
         });
+    }
+
+    fn write_globals(&self, queue: &wgpu::Queue, width: u32, height: u32) {
+        queue.write_buffer(
+            &self.globals,
+            0,
+            bytemuck::bytes_of(&Globals {
+                size: [width as f32, height as f32],
+                padding: [0.0, 0.0],
+            }),
+        );
+    }
+
+    fn draw_layers(
+        &mut self,
+        pass: &mut wgpu::RenderPass<'_>,
+        layers: Range<usize>,
+        rectangle_ranges: &[Range<u32>; LAYER_COUNT],
+        mesh_ranges: &[Range<u32>; LAYER_COUNT],
+        image_ranges: &[Range<u32>; LAYER_COUNT],
+    ) -> Result<()> {
+        for layer in layers {
+            pass.set_bind_group(0, &self.globals_bind_group, &[]);
+            let rectangle_range = rectangle_ranges[layer].clone();
+            if !rectangle_range.is_empty() {
+                pass.set_pipeline(&self.rectangle_pipeline);
+                pass.set_vertex_buffer(0, self.quad.slice(..));
+                pass.set_vertex_buffer(1, self.rectangle_instances.buffer.slice(..));
+                pass.draw(0..6, rectangle_range);
+            }
+            let mesh_range = mesh_ranges[layer].clone();
+            if !mesh_range.is_empty() {
+                pass.set_pipeline(&self.mesh_pipeline);
+                pass.set_vertex_buffer(0, self.mesh_vertices.buffer.slice(..));
+                pass.draw(mesh_range, 0..1);
+            }
+            let image_range = image_ranges[layer].clone();
+            if !image_range.is_empty() {
+                pass.set_pipeline(&self.image_pipeline);
+                pass.set_bind_group(1, &self.avatar_bind_group, &[]);
+                pass.set_vertex_buffer(0, self.quad.slice(..));
+                pass.set_vertex_buffer(1, self.image_instances.buffer.slice(..));
+                pass.draw(0..6, image_range);
+            }
+            self.glyphs[layer]
+                .render(&self.text_atlas, &self.viewport, pass)
+                .context("render glyph atlas")?;
+        }
+        Ok(())
     }
 
     fn collect_images(
@@ -1065,8 +1073,14 @@ impl Renderer {
 }
 
 fn set_shaping_text(buffer: &mut TextBuffer, spec: &TextSpec) {
-    let default_attrs = Attrs::new().family(font_family(spec.face));
-    if spec.face != FontFace::Sans {
+    let default_attrs = Attrs::new()
+        .family(font_family(spec.face))
+        .weight(face_weight(spec.face));
+    let is_sans = matches!(
+        spec.face,
+        FontFace::Sans | FontFace::SansMedium | FontFace::SansBold
+    );
+    if !is_sans {
         buffer.set_text(&spec.text, &default_attrs, Shaping::Advanced, None);
         return;
     }
@@ -1094,12 +1108,14 @@ fn set_shaping_text(buffer: &mut TextBuffer, spec: &TextSpec) {
 
     buffer.set_rich_text(
         spans.into_iter().map(|(range, is_icon)| {
-            let face = if is_icon {
-                FontFace::Icons
+            let attrs = if is_icon {
+                Attrs::new().family(font_family(FontFace::Icons))
             } else {
-                FontFace::Sans
+                Attrs::new()
+                    .family(font_family(spec.face))
+                    .weight(face_weight(spec.face))
             };
-            (&spec.text[range], Attrs::new().family(font_family(face)))
+            (&spec.text[range], attrs)
         }),
         &default_attrs,
         Shaping::Advanced,
@@ -1107,29 +1123,35 @@ fn set_shaping_text(buffer: &mut TextBuffer, spec: &TextSpec) {
     );
 }
 
-fn font_family(face: FontFace) -> Family<'static> {
+/// Weight for a sans face variant; non-sans faces stay at normal weight.
+fn face_weight(face: FontFace) -> Weight {
     match face {
-        FontFace::Sans => Family::Name("Instrument Sans"),
-        FontFace::Icons | FontFace::Monospace => Family::Name("BerkeleyMono Nerd Font"),
-        FontFace::Terminal => Family::Name("JetBrainsMono Nerd Font Mono"),
+        FontFace::SansMedium => Weight::MEDIUM,
+        FontFace::SansBold => Weight::SEMIBOLD,
+        _ => Weight::NORMAL,
     }
 }
 
-/// Builds a font system with the embedded application, icon, and terminal faces registered.
+fn font_family(face: FontFace) -> Family<'static> {
+    match face {
+        FontFace::Sans | FontFace::SansMedium | FontFace::SansBold => {
+            Family::Name("Instrument Sans")
+        }
+        FontFace::Icons | FontFace::Monospace | FontFace::Terminal => {
+            Family::Name("JetBrainsMono Nerd Font Mono")
+        }
+    }
+}
+
+/// Builds a font system with the embedded application and mono faces registered.
 ///
-/// `Instrument Sans` carries human text, `BerkeleyMono Nerd Font` carries icons,
-/// microlabels, and code, and `JetBrainsMono Nerd Font Mono` is the terminal face
-/// with Nerd Font glyph coverage. System fonts remain as fallback.
+/// `Instrument Sans` carries human text; `JetBrainsMono Nerd Font Mono` carries
+/// icons, microlabels, code, and the terminal grid with Nerd Font glyph
+/// coverage. System fonts remain as fallback.
 fn brand_font_system() -> FontSystem {
     let mut font_system = FontSystem::new();
     let db = font_system.db_mut();
     db.load_font_data(include_bytes!("../../assets/fonts/InstrumentSans.ttf").to_vec());
-    db.load_font_data(
-        include_bytes!("../../assets/fonts/BerkeleyMonoNerdFont-Regular.ttf").to_vec(),
-    );
-    db.load_font_data(
-        include_bytes!("../../assets/fonts/BerkeleyMonoNerdFont-Medium.ttf").to_vec(),
-    );
     db.load_font_data(
         include_bytes!("../../assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf").to_vec(),
     );
@@ -1199,12 +1221,8 @@ fn collect_rectangles(
                 params: [
                     rectangle.radius,
                     rectangle.border_width,
-                    match rectangle.pattern {
-                        Pattern::Solid => 0.0,
-                        Pattern::Checker => 1.0,
-                        Pattern::Field => 2.0,
-                    },
                     0.0,
+                    rectangle.softness,
                 ],
             };
             if rectangle.frost {

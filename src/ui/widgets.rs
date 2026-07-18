@@ -1,7 +1,8 @@
 use crate::ui::{
     FontFace, Rect, Scene, TextField, Theme,
     action::{CursorHint, ScrollTarget, UiAction},
-    icons,
+    icons, px,
+    theme::{RADIUS_MD, RADIUS_SM},
 };
 
 /// Draws a directly manipulable vertical scrollbar for a clipped scroll surface.
@@ -19,7 +20,7 @@ pub(crate) fn scrollbar(
     if content_height <= viewport.height || viewport.height <= 0.0 {
         return;
     }
-    let width = 7.0;
+    let width = 8.0;
     let track = Rect::new(
         viewport.right() - width - 2.0,
         viewport.y,
@@ -36,8 +37,15 @@ pub(crate) fn scrollbar(
         width,
         thumb_height,
     );
-    scene.rect(3, track, viewport, theme.input.with_alpha(0.72));
-    scene.rect(3, thumb, viewport, theme.border_hard);
+    scene.rounded_rect(
+        3,
+        thumb,
+        viewport,
+        theme.border_hard.with_alpha(0.75),
+        theme.border_hard.with_alpha(0.75),
+        3.0,
+        0.0,
+    );
     scene.hit_clipped(
         Rect::new(track.x - 2.0, track.y, width + 4.0, track.height),
         viewport,
@@ -73,7 +81,7 @@ pub(crate) fn truncated_text(
     let visible = bounds.intersection(clip).unwrap_or(bounds);
     scene.text(text, origin, visible, color, size, line_height, face);
     let per_char = match face {
-        FontFace::Sans => size * 0.52,
+        FontFace::Sans | FontFace::SansMedium | FontFace::SansBold => size * 0.52,
         FontFace::Icons | FontFace::Monospace | FontFace::Terminal => size * 0.6,
     };
     let estimated = text.chars().count() as f32 * per_char;
@@ -141,65 +149,55 @@ fn button_on_layer(
     let hovered = rect.contains(mouse) && enabled;
     let viewport = scene.viewport();
     if !enabled {
-        // Disabled: transparent fill, default outline, tertiary text.
-        scene.rounded_rect(
-            layer,
-            rect,
-            viewport,
-            theme.window.with_alpha(0.0),
-            theme.border_strong,
-            0.0,
-            1.0,
-        );
+        // Disabled: quiet well, hairline outline, tertiary text.
+        scene.rounded_rect(layer, rect, viewport, theme.panel, theme.border, RADIUS_MD, 1.0);
     } else if accent {
-        // Primary: cyan fill, black text; hover fades in the strong dither.
-        scene.rounded_rect(layer, rect, viewport, theme.accent, theme.accent, 0.0, 0.0);
-        if hovered {
-            scene.dither_rect(
-                layer,
-                rect,
-                viewport,
-                theme.accent_hover.with_alpha(0.6),
-                crate::ui::scene::Pattern::Checker,
-            );
-        }
+        // Primary: flat indigo fill; hover lifts the tone one step.
+        let fill = if hovered {
+            theme.accent_hover
+        } else {
+            theme.accent
+        };
+        scene.rounded_rect(layer, rect, viewport, fill, fill, RADIUS_MD, 0.0);
     } else {
-        // Secondary: surface-1 + default border; hover surface-2 + strong border.
+        // Secondary: flat raised well + outline; hover lifts to the popover tone.
         scene.rounded_rect(
             layer,
             rect,
             viewport,
             if hovered {
-                theme.panel_alt
+                theme.surface_3
             } else {
-                theme.panel
+                theme.panel_alt
             },
             if hovered {
                 theme.border_hard
             } else {
                 theme.border_strong
             },
-            0.0,
+            RADIUS_MD,
             1.0,
         );
     }
     let color = if !enabled {
-        theme.text_dim
+        theme.text_disabled
     } else if accent {
         theme.on_accent
-    } else if hovered {
-        theme.text
     } else {
-        theme.text_muted
+        theme.text
     };
+    let label = label.into();
+    // Center the label using the shared proportional width estimate.
+    let estimated = px(label.chars().count()) * 13.0 * 0.52;
+    let text_x = rect.x + ((rect.width - estimated) * 0.5).max(9.0);
     scene.text(
         label,
-        [rect.x + 9.0, rect.y + (rect.height - 16.0) * 0.5],
+        [text_x, rect.y + (rect.height - 16.0) * 0.5],
         rect.inset(4.0),
         color,
         13.0,
         16.0,
-        FontFace::Sans,
+        FontFace::SansMedium,
     );
     if enabled {
         scene.hit(rect, action, CursorHint::Pointer, tooltip);
@@ -219,7 +217,15 @@ pub(crate) fn checkbox(
 ) {
     let hovered = rect.contains(mouse);
     if hovered {
-        scene.rect(1, rect, scene.viewport(), theme.row_hover.with_alpha(0.55));
+        scene.rounded_rect(
+            1,
+            rect,
+            scene.viewport(),
+            theme.row_hover,
+            theme.row_hover,
+            RADIUS_SM,
+            0.0,
+        );
     }
     let box_rect = Rect::new(rect.x + 2.0, rect.y + 5.0, 16.0, 16.0);
     scene.rounded_rect(
@@ -230,9 +236,9 @@ pub(crate) fn checkbox(
         if checked {
             theme.accent
         } else {
-            theme.border_strong
+            theme.border_hard
         },
-        0.0,
+        3.0,
         1.0,
     );
     if checked {
@@ -270,9 +276,9 @@ pub(crate) fn section_label(scene: &mut Scene, rect: Rect, label: &str, theme: &
         [rect.x, rect.y],
         rect,
         theme.text_dim,
-        10.0,
-        13.0,
-        FontFace::Monospace,
+        11.0,
+        14.0,
+        FontFace::SansMedium,
     );
 }
 
@@ -344,6 +350,18 @@ fn input_on_layer(
     multiline: bool,
     layer: usize,
 ) {
+    if focused {
+        // Flat focus ring just outside the well.
+        scene.rounded_rect(
+            layer,
+            rect.inset(-2.5),
+            scene.viewport(),
+            theme.window.with_alpha(0.0),
+            theme.accent.with_alpha(0.30),
+            RADIUS_MD + 2.5,
+            2.0,
+        );
+    }
     scene.rounded_rect(
         layer,
         rect,
@@ -354,7 +372,7 @@ fn input_on_layer(
         } else {
             theme.border_strong
         },
-        0.0,
+        RADIUS_MD,
         1.0,
     );
     let shown = if field.is_empty() {
@@ -398,14 +416,14 @@ fn input_on_layer(
             "Edit text"
         }),
     );
-    if rect.contains(mouse) {
+    if rect.contains(mouse) && !focused {
         scene.rounded_rect(
             layer + 1,
             rect,
             scene.viewport(),
             theme.window.with_alpha(0.0),
             theme.border_hard,
-            0.0,
+            RADIUS_MD,
             1.0,
         );
     }
@@ -443,7 +461,7 @@ pub(crate) fn caret_overlay(
                     line_height,
                 );
                 if let Some(visible) = band.intersection(clip) {
-                    scene.rect(layer, visible, clip, theme.accent.with_alpha(0.3));
+                    scene.rect(layer, visible, clip, theme.accent.with_alpha(0.25));
                 }
             }
             line_start += line_chars + 1;
@@ -453,7 +471,7 @@ pub(crate) fn caret_overlay(
     let caret_rect = Rect::new(
         x.min(clip.right() - 3.0),
         origin[1] + super::geometry::px(caret.line) * line_height,
-        1.0,
+        1.5,
         line_height,
     );
     if let Some(visible) = caret_rect.intersection(clip) {

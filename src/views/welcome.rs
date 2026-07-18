@@ -1,7 +1,7 @@
 use crate::{
     app::state::{AppState, FocusField},
     ui::{
-        FontFace, Rect, Scene, Theme,
+        FontFace, RADIUS_LG, RADIUS_MD, RADIUS_SM, Rect, Scene, Theme,
         action::{CursorHint, UiAction},
         icons,
         widgets::truncated_text,
@@ -37,7 +37,7 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
         theme.text,
         15.0,
         21.0,
-        FontFace::Sans,
+        FontFace::SansBold,
     );
     chip(
         scene,
@@ -96,7 +96,15 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
     }) {
         let row = Rect::new(left.x, y, left.width, 19.0);
         if row.contains(state.hover()) {
-            scene.rect(1, row, left, theme.panel_alt);
+            scene.rounded_rect(
+                1,
+                row,
+                left,
+                theme.row_hover,
+                theme.row_hover,
+                RADIUS_SM,
+                0.0,
+            );
         }
         truncated_text(
             scene,
@@ -107,7 +115,7 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
             theme.accent,
             11.5,
             15.0,
-            FontFace::Sans,
+            FontFace::Monospace,
         );
         truncated_text(
             scene,
@@ -118,7 +126,7 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
             theme.text_dim,
             11.0,
             15.0,
-            FontFace::Sans,
+            FontFace::Monospace,
         );
         scene.hit_clipped(
             row,
@@ -132,7 +140,7 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
 
     if state.clone_form {
         let form = Rect::new(left.x, y + 14.0, left.width, 116.0);
-        scene.rounded_rect(1, form, left, theme.surface_3, theme.border, 3.0, 1.0);
+        scene.rounded_rect(1, form, left, theme.panel, theme.border, RADIUS_LG, 1.0);
         scene.text(
             "Clone a repository",
             [form.x + 12.0, form.y + 10.0],
@@ -236,13 +244,9 @@ fn chip(
         1,
         rect,
         scene.viewport(),
-        if hovered {
-            theme.panel_alt
-        } else {
-            theme.surface_3
-        },
-        theme.border,
-        3.0,
+        if hovered { theme.row_hover } else { theme.panel },
+        if hovered { theme.border_hard } else { theme.border },
+        RADIUS_MD,
         1.0,
     );
     scene.text(
@@ -270,9 +274,9 @@ fn input(
         1,
         rect,
         scene.viewport(),
-        theme.window,
+        theme.input,
         if focused { theme.accent } else { theme.border },
-        3.0,
+        RADIUS_MD,
         if focused { 2.0 } else { 1.0 },
     );
     let text = if field.is_empty() {

@@ -9,13 +9,13 @@
 use crate::ui::{Rect, action::UiAction};
 
 /// Vertical extent of one actionable menu row.
-const ROW_HEIGHT: f32 = 26.0;
+const ROW_HEIGHT: f32 = 30.0;
 /// Vertical extent of a separator rule.
 const SEPARATOR_HEIGHT: f32 = 9.0;
 /// Inner padding above and below the entry list.
-const PADDING: f32 = 6.0;
+const PADDING: f32 = 8.0;
 /// Extent of the dimmed title line naming the menu target.
-const HEADER_HEIGHT: f32 = 26.0;
+const HEADER_HEIGHT: f32 = 28.0;
 /// Minimum gap kept between a panel and the viewport edge.
 const MARGIN: f32 = 8.0;
 

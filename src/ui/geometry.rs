@@ -1,13 +1,11 @@
 use num_traits::ToPrimitive;
 
-/// Height of the repository tab strip.
-pub(crate) const TAB_BAR_HEIGHT: f32 = 40.0;
-/// Height of the repository action toolbar.
-pub(crate) const TOOLBAR_HEIGHT: f32 = 58.0;
+/// Height of the unified top chrome strip (tabs + actions).
+pub(crate) const CHROME_HEIGHT: f32 = 44.0;
 /// Height of the bottom status strip.
 pub(crate) const STATUS_BAR_HEIGHT: f32 = 22.0;
 /// Vertical origin of the three-pane workspace.
-pub(crate) const CONTENT_TOP: f32 = TAB_BAR_HEIGHT + TOOLBAR_HEIGHT;
+pub(crate) const CONTENT_TOP: f32 = CHROME_HEIGHT;
 /// Height of the commit table's column header.
 pub(crate) const COMMIT_HEADER_HEIGHT: f32 = 28.0;
 /// Height of one virtualized commit or WIP row.
