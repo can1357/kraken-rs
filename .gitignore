@@ -1,0 +1,12 @@
+# Build output
+/target/
+
+# Generated demo/test repositories and rendered checkpoints
+/artifacts/
+
+# OS junk
+.DS_Store
+
+
+*.txt
+
