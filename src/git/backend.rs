@@ -407,6 +407,12 @@ impl Backend for GitBackend {
                     .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut options))
                     .context("create committed file diff")?
             }
+            DiffScope::CommitRange { oldest, newest } => {
+                let (base_tree, newest_tree, _, _) = range_trees(&repository, oldest, newest)?;
+                repository
+                    .diff_tree_to_tree(base_tree.as_ref(), Some(&newest_tree), Some(&mut options))
+                    .context("create range file diff")?
+            }
             DiffScope::Staged => {
                 let head_tree = repository
                     .head()
@@ -2011,16 +2017,14 @@ fn file_content(
             Ok(text_content(blob.content(), encoding))
         }
         DiffScope::Commit(id) => {
-            let oid = Oid::from_str(id).with_context(|| format!("parse commit id {id}"))?;
-            let commit = repository.find_commit(oid).context("find content commit")?;
+            let commit = find_commit(repository, id)?;
             let tree = commit.tree().context("load content tree")?;
-            let Ok(entry) = tree.get_path(&request.path) else {
-                return Ok(None);
-            };
-            let Ok(blob) = repository.find_blob(entry.id()) else {
-                return Ok(None);
-            };
-            Ok(text_content(blob.content(), encoding))
+            Ok(tree_blob_content(repository, &tree, &request.path, encoding))
+        }
+        DiffScope::CommitRange { newest, .. } => {
+            let commit = find_commit(repository, newest)?;
+            let tree = commit.tree().context("load content tree")?;
+            Ok(tree_blob_content(repository, &tree, &request.path, encoding))
         }
     }
 }
@@ -2039,22 +2043,61 @@ fn diff_side_content(
         DiffScope::Staged => head_content(repository, &request.path)?
             .as_deref()
             .and_then(|content| text_content(content, encoding)),
-        DiffScope::Commit(id) => {
-            let oid = Oid::from_str(id).with_context(|| format!("parse commit id {id}"))?;
-            let commit = repository.find_commit(oid).context("find diff commit")?;
-            commit
-                .parent(0)
-                .ok()
-                .and_then(|parent| parent.tree().ok())
-                .and_then(|tree| {
-                    tree.get_path(&request.path)
-                        .ok()
-                        .and_then(|entry| repository.find_blob(entry.id()).ok())
-                        .and_then(|blob| text_content(blob.content(), encoding))
-                })
-        }
+        DiffScope::Commit(id) => find_commit(repository, id)?
+            .parent(0)
+            .ok()
+            .and_then(|parent| parent.tree().ok())
+            .and_then(|tree| tree_blob_content(repository, &tree, &request.path, encoding)),
+        DiffScope::CommitRange { oldest, .. } => find_commit(repository, oldest)?
+            .parent(0)
+            .ok()
+            .and_then(|parent| parent.tree().ok())
+            .and_then(|tree| tree_blob_content(repository, &tree, &request.path, encoding)),
     };
     Ok((old, new))
+}
+
+/// Looks up one commit by hex id with a uniform error message.
+fn find_commit<'repo>(repository: &'repo Repository, id: &str) -> Result<git2::Commit<'repo>> {
+    let oid = Oid::from_str(id).with_context(|| format!("parse commit id {id}"))?;
+    repository
+        .find_commit(oid)
+        .with_context(|| format!("find commit {id}"))
+}
+
+/// Text content of `path` inside `tree`, when present and not binary.
+fn tree_blob_content(
+    repository: &Repository,
+    tree: &git2::Tree<'_>,
+    path: &Path,
+    encoding: &str,
+) -> Option<String> {
+    let entry = tree.get_path(path).ok()?;
+    let blob = repository.find_blob(entry.id()).ok()?;
+    text_content(blob.content(), encoding)
+}
+
+/// Resolves the base/target trees of an inclusive commit range along with the
+/// endpoint ids: the oldest commit's first-parent tree (absent for a root
+/// commit) against the newest commit's tree.
+fn range_trees<'repo>(
+    repository: &'repo Repository,
+    oldest: &str,
+    newest: &str,
+) -> Result<(Option<git2::Tree<'repo>>, git2::Tree<'repo>, Oid, Oid)> {
+    let oldest_commit = find_commit(repository, oldest)?;
+    let newest_commit = find_commit(repository, newest)?;
+    let base_tree = oldest_commit
+        .parent(0)
+        .ok()
+        .and_then(|parent| parent.tree().ok());
+    let newest_tree = newest_commit.tree().context("load range target tree")?;
+    Ok((
+        base_tree,
+        newest_tree,
+        oldest_commit.id(),
+        newest_commit.id(),
+    ))
 }
 
 fn full_diff_rows(old: &str, new: &str) -> (Vec<DiffRow>, Vec<usize>) {

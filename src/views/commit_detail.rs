@@ -675,16 +675,32 @@ fn collect_rows<'a>(
     }
 }
 
+/// Path/change pairs for a plain changed-files listing.
+fn changed_rows(files: &[FileChange]) -> Vec<(&Path, Option<&FileChange>)> {
+    files
+        .iter()
+        .map(|file| (file.path.as_path(), Some(file)))
+        .collect()
+}
+
 /// Row count of the detail file section; shared with scrollbar metrics.
 pub(crate) fn detail_row_count(state: &AppState) -> usize {
-    state.detail.as_ref().map_or(0, |detail| {
-        let files = collect_rows(state, detail);
-        if state.path_tree {
-            build_tree_rows(&files).len()
-        } else {
-            files.len()
-        }
-    })
+    let files = if state.selected_commits.len() > 1 {
+        let Some(range) = state.range_detail.as_ref() else {
+            return 0;
+        };
+        changed_rows(&range.files)
+    } else {
+        let Some(detail) = state.detail.as_ref() else {
+            return 0;
+        };
+        collect_rows(state, detail)
+    };
+    if state.path_tree {
+        build_tree_rows(&files).len()
+    } else {
+        files.len()
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -696,7 +712,7 @@ fn draw_file_row(
     row: Rect,
     path: &Path,
     change: Option<&FileChange>,
-    commit: &str,
+    scope: &DiffScope,
     depth: usize,
     show_directory_prefix: bool,
 ) {
@@ -832,11 +848,338 @@ fn draw_file_row(
         clip,
         UiAction::SelectFile {
             path: path.to_path_buf(),
-            staged: false,
-            commit: Some(commit.to_owned()),
+            scope: scope.clone(),
         },
         CursorHint::Pointer,
         None,
+    );
+}
+
+/// GitKraken-style combined panel for a multi-commit selection: a summary of
+/// the selected commits above the union file list of `parent(oldest)…newest`.
+fn build_multi(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
+    let count = state.selected_commits.len();
+    let header = Rect::new(rect.x, rect.y, rect.width, 39.0);
+
+    // Selected subjects, newest first, straight from the loaded graph.
+    let selected: Vec<&crate::git::models::CommitSummary> = state
+        .snapshot
+        .as_ref()
+        .map(|snapshot| {
+            snapshot
+                .commits
+                .iter()
+                .filter(|commit| state.selected_commits.contains(&commit.id))
+                .collect()
+        })
+        .unwrap_or_default();
+    let listed = selected.len().min(8);
+    let overflow = selected.len().saturating_sub(listed);
+
+    let message_bg_height = 39.0
+        + 18.0
+        + 30.0
+        + 22.0
+        + listed.to_f32().unwrap_or(0.0) * 18.0
+        + if overflow > 0 { 18.0 } else { 0.0 }
+        + 15.0;
+    scene.rect(
+        1,
+        Rect::new(rect.x, rect.y, rect.width, message_bg_height),
+        rect,
+        theme.panel_alt,
+    );
+
+    scene.text(
+        "COMMITS:",
+        [header.x + 12.0, header.y + 12.0],
+        header,
+        theme.text_dim,
+        11.0,
+        15.0,
+        FontFace::Sans,
+    );
+    scene.text(
+        format!("{count} selected"),
+        [header.x + 70.0, header.y + 12.0],
+        header,
+        theme.accent,
+        11.0,
+        15.0,
+        FontFace::Monospace,
+    );
+    let close = Rect::new(header.right() - 25.0, header.y + 6.0, 19.0, 26.0);
+    scene.text(
+        icons::CLOSE,
+        [close.x + 5.0, close.y + 3.0],
+        close,
+        theme.text_muted,
+        15.0,
+        19.0,
+        FontFace::Sans,
+    );
+    scene.hit(
+        close,
+        UiAction::CloseDetail,
+        CursorHint::Pointer,
+        Some("Clear selection"),
+    );
+    divider(
+        scene,
+        Rect::new(rect.x, header.bottom(), rect.width, 1.0),
+        theme,
+    );
+
+    let clip = Rect::new(
+        rect.x + 1.0,
+        header.bottom(),
+        rect.width - 2.0,
+        rect.height - header.height,
+    );
+    let message_clip = clip
+        .intersection(Rect::new(
+            rect.x,
+            rect.y,
+            rect.width,
+            (message_bg_height - 4.0).max(0.0),
+        ))
+        .unwrap_or(clip);
+    let mut y = header.bottom() + 15.0;
+    scene.text(
+        format!("{count} commits selected"),
+        [rect.x + 16.0, y],
+        Rect::new(rect.x + 16.0, y, rect.width - 32.0, 26.0)
+            .intersection(message_clip)
+            .unwrap_or(message_clip),
+        theme.text,
+        15.0,
+        20.0,
+        FontFace::SansMedium,
+    );
+    y += 30.0;
+    if let Some(range) = &state.range_detail {
+        scene.text(
+            format!("{} … {}", range.oldest_short, range.newest_short),
+            [rect.x + 16.0, y],
+            Rect::new(rect.x + 16.0, y, rect.width - 32.0, 20.0)
+                .intersection(message_clip)
+                .unwrap_or(message_clip),
+            theme.accent,
+            12.0,
+            16.0,
+            FontFace::Monospace,
+        );
+    }
+    y += 22.0;
+    for commit in selected.iter().take(listed) {
+        truncated_text(
+            scene,
+            &format!("{}  {}", commit.short_id, commit.subject),
+            [rect.x + 16.0, y],
+            Rect::new(rect.x + 16.0, y, rect.width - 32.0, 18.0),
+            message_clip,
+            theme.text_muted,
+            11.5,
+            15.0,
+            FontFace::Monospace,
+        );
+        y += 18.0;
+    }
+    if overflow > 0 {
+        scene.text(
+            format!("… and {overflow} more"),
+            [rect.x + 16.0, y],
+            Rect::new(rect.x + 16.0, y, rect.width - 32.0, 18.0)
+                .intersection(message_clip)
+                .unwrap_or(message_clip),
+            theme.text_dim,
+            11.0,
+            15.0,
+            FontFace::Sans,
+        );
+    }
+    divider(
+        scene,
+        Rect::new(rect.x, rect.y + message_bg_height - 1.0, rect.width, 1.0),
+        theme,
+    );
+
+    let Some(range) = &state.range_detail else {
+        scene.text(
+            format!("{}  Loading combined diff…", icons::LOADING),
+            [rect.x + 16.0, rect.y + message_bg_height + 20.0],
+            Rect::new(
+                rect.x + 16.0,
+                rect.y + message_bg_height + 8.0,
+                rect.width - 32.0,
+                32.0,
+            ),
+            theme.accent,
+            13.0,
+            18.0,
+            FontFace::Sans,
+        );
+        return;
+    };
+
+    let files = changed_rows(&range.files);
+    let tree_rows = state.path_tree.then(|| build_tree_rows(&files));
+    let total_files = tree_rows.as_ref().map_or(files.len(), Vec::len);
+    let content_height =
+        message_bg_height + 90.0 + total_files.to_f32().unwrap_or(0.0) * 24.0;
+    let scroll = state
+        .detail_scroll
+        .min((content_height - clip.height).max(0.0));
+    let mut y = rect.y + message_bg_height + 12.0 - scroll;
+
+    let modified = range
+        .files
+        .iter()
+        .filter(|file| file.kind == ChangeKind::Modified)
+        .count();
+    let added = range
+        .files
+        .iter()
+        .filter(|file| file.kind == ChangeKind::Added)
+        .count();
+    let stats_x = rect.x + 16.0;
+    scene.text(
+        format!("{modified} MODIFIED"),
+        [stats_x, y + 6.0],
+        Rect::new(stats_x, y, 92.0, 26.0)
+            .intersection(clip)
+            .unwrap_or(clip),
+        theme.orange,
+        11.0,
+        15.0,
+        FontFace::Sans,
+    );
+    scene.text(
+        format!("+ {added} ADDED"),
+        [stats_x + 96.0, y + 6.0],
+        Rect::new(stats_x + 96.0, y, 84.0, 26.0)
+            .intersection(clip)
+            .unwrap_or(clip),
+        theme.green,
+        11.0,
+        15.0,
+        FontFace::Sans,
+    );
+    let toggle = Rect::new(rect.right() - 136.0, y, 120.0, 26.0);
+    scene.rounded_rect(1, toggle, clip, theme.panel_alt, theme.panel_alt, RADIUS_MD, 0.0);
+    let path_rect = Rect::new(toggle.x, toggle.y, 60.0, 26.0);
+    let tree_rect = Rect::new(toggle.x + 60.0, toggle.y, 60.0, 26.0);
+    let active_rect = if state.path_tree {
+        tree_rect
+    } else {
+        path_rect
+    };
+    scene.rounded_rect(
+        2,
+        active_rect.inset(2.0),
+        clip,
+        theme.surface_3,
+        theme.border_strong,
+        RADIUS_MD - 2.0,
+        1.0,
+    );
+    scene.text(
+        "PATH",
+        [path_rect.x + 12.0, path_rect.y + 6.0],
+        path_rect.intersection(clip).unwrap_or(clip),
+        if state.path_tree {
+            theme.text_muted
+        } else {
+            theme.text
+        },
+        11.0,
+        14.0,
+        FontFace::Sans,
+    );
+    scene.text(
+        "TREE",
+        [tree_rect.x + 12.0, tree_rect.y + 6.0],
+        tree_rect.intersection(clip).unwrap_or(clip),
+        if state.path_tree {
+            theme.text
+        } else {
+            theme.text_muted
+        },
+        11.0,
+        14.0,
+        FontFace::Sans,
+    );
+    scene.hit_clipped(
+        toggle,
+        clip,
+        UiAction::TogglePathTree,
+        CursorHint::Pointer,
+        None,
+    );
+    y += 38.0;
+
+    let scope = DiffScope::CommitRange {
+        oldest: range.oldest.clone(),
+        newest: range.newest.clone(),
+    };
+    let file_top = y;
+    let file_clip_y = file_top.max(clip.y).min(clip.bottom());
+    let file_clip = Rect::new(
+        rect.x + 1.0,
+        file_clip_y,
+        rect.width - 2.0,
+        (clip.bottom() - file_clip_y).max(0.0),
+    );
+    if file_clip.height > 0.0 {
+        let first = ((file_clip.y - file_top).max(0.0) / 24.0)
+            .floor()
+            .to_usize()
+            .unwrap_or(0)
+            .min(total_files);
+        let visible = (file_clip.height / 24.0)
+            .ceil()
+            .to_usize()
+            .unwrap_or(0)
+            .saturating_add(2);
+        let end = first.saturating_add(visible).min(total_files);
+        for index in first..end {
+            let row = Rect::new(
+                rect.x,
+                file_top + index.to_f32().unwrap_or(0.0) * 24.0,
+                rect.width,
+                24.0,
+            );
+            if let Some(tree_rows) = &tree_rows {
+                match &tree_rows[index] {
+                    TreeRow::Folder { name, depth } => {
+                        draw_folder_row(scene, state, theme, file_clip, row, name, *depth);
+                    }
+                    TreeRow::File {
+                        path,
+                        change,
+                        depth,
+                    } => {
+                        draw_file_row(
+                            scene, state, theme, file_clip, row, path, *change, &scope, *depth,
+                            false,
+                        );
+                    }
+                }
+            } else {
+                let (path, change) = files[index];
+                draw_file_row(
+                    scene, state, theme, file_clip, row, path, change, &scope, 0, true,
+                );
+            }
+        }
+    }
+    scrollbar(
+        scene,
+        clip,
+        content_height,
+        scroll,
+        ScrollTarget::Detail,
+        theme,
     );
 }
 
