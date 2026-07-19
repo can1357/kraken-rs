@@ -4558,52 +4558,6 @@ mod tests {
     }
 
     #[test]
-    fn menu_commands_dismiss_their_owning_menu() {
-        let settings_directory = tempfile::tempdir().expect("temporary settings directory");
-        let store = SettingsStore::at(settings_directory.path().join("settings.toml"));
-        let mut state = AppState::base(1_200, 800, store, Settings::default());
-
-        state.overlay = Overlay::Actions;
-        state.dispatch(UiAction::Fetch);
-        assert_eq!(state.overlay, Overlay::None);
-
-        state.overlay = Overlay::Lfs;
-        state.dispatch(UiAction::LfsCheckout);
-        assert_eq!(state.overlay, Overlay::None);
-    }
-    #[test]
-    fn popup_click_outside_dismisses_without_dispatching_the_underlying_action() {
-        let settings_directory = tempfile::tempdir().expect("temporary settings directory");
-        let store = SettingsStore::at(settings_directory.path().join("settings.toml"));
-        let mut state = AppState::base(1_200, 800, store, Settings::default());
-        state.tabs[0].path = Some(std::env::temp_dir());
-        state.focus = FocusField::CommitSummary;
-        state.dispatch(UiAction::ToggleActionsMenu);
-
-        let scene = views::build_scene(&state, &Theme::dark());
-        state.adopt_scene(&scene);
-        let outside = state
-            .hits
-            .iter()
-            .find(|hit| hit.action == UiAction::ToggleBranchMenu)
-            .expect("branch menu target remains outside actions popup")
-            .rect;
-        state.mouse = [
-            outside.x + outside.width * 0.5,
-            outside.y + outside.height * 0.5,
-        ];
-        state.click();
-
-        assert_eq!(state.overlay, Overlay::None);
-        assert_eq!(state.focus, FocusField::CommitSummary);
-
-        state.dispatch(UiAction::ToggleActionsMenu);
-        state.escape();
-        assert_eq!(state.overlay, Overlay::None);
-        assert_eq!(state.focus, FocusField::CommitSummary);
-    }
-
-    #[test]
     fn modifier_clicks_assemble_multi_selection_and_combined_range() {
         let (repository_directory, _) = repository_with_working_file();
         commit_file(repository_directory.path(), "b.txt", "bee\n", "feat: added b");
@@ -4715,6 +4669,52 @@ mod tests {
                 .as_ref()
                 .is_some_and(|detail| detail.id == head)
         );
+    }
+
+    #[test]
+    fn menu_commands_dismiss_their_owning_menu() {
+        let settings_directory = tempfile::tempdir().expect("temporary settings directory");
+        let store = SettingsStore::at(settings_directory.path().join("settings.toml"));
+        let mut state = AppState::base(1_200, 800, store, Settings::default());
+
+        state.overlay = Overlay::Actions;
+        state.dispatch(UiAction::Fetch);
+        assert_eq!(state.overlay, Overlay::None);
+
+        state.overlay = Overlay::Lfs;
+        state.dispatch(UiAction::LfsCheckout);
+        assert_eq!(state.overlay, Overlay::None);
+    }
+    #[test]
+    fn popup_click_outside_dismisses_without_dispatching_the_underlying_action() {
+        let settings_directory = tempfile::tempdir().expect("temporary settings directory");
+        let store = SettingsStore::at(settings_directory.path().join("settings.toml"));
+        let mut state = AppState::base(1_200, 800, store, Settings::default());
+        state.tabs[0].path = Some(std::env::temp_dir());
+        state.focus = FocusField::CommitSummary;
+        state.dispatch(UiAction::ToggleActionsMenu);
+
+        let scene = views::build_scene(&state, &Theme::dark());
+        state.adopt_scene(&scene);
+        let outside = state
+            .hits
+            .iter()
+            .find(|hit| hit.action == UiAction::ToggleBranchMenu)
+            .expect("branch menu target remains outside actions popup")
+            .rect;
+        state.mouse = [
+            outside.x + outside.width * 0.5,
+            outside.y + outside.height * 0.5,
+        ];
+        state.click();
+
+        assert_eq!(state.overlay, Overlay::None);
+        assert_eq!(state.focus, FocusField::CommitSummary);
+
+        state.dispatch(UiAction::ToggleActionsMenu);
+        state.escape();
+        assert_eq!(state.overlay, Overlay::None);
+        assert_eq!(state.focus, FocusField::CommitSummary);
     }
 
     #[test]

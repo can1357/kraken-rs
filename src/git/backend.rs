@@ -2800,113 +2800,6 @@ mod tests {
     }
 
     #[test]
-    fn stage_diff_commit_and_amend_use_real_index_and_objects() {
-        let (directory, _repository) = repository_with_commit();
-        std::fs::write(
-            directory.path().join("tracked.txt"),
-            "alpha\nvalue = new\nomega\n",
-        )
-        .expect("modify tracked file");
-        let backend = GitBackend::discover(directory.path()).expect("discover repository");
-        let unstaged_request = DiffRequest {
-            path: PathBuf::from("tracked.txt"),
-            scope: DiffScope::Unstaged,
-        };
-        let unstaged = backend.diff(&unstaged_request).expect("load unstaged diff");
-        assert!(
-            unstaged.rows.iter().any(|row| {
-                row.kind == DiffRowKind::Changed && row.old_mark.is_some() && row.new_mark.is_some()
-            }),
-            "{:#?}",
-            unstaged.rows
-        );
-        assert!(
-            unstaged
-                .content
-                .as_deref()
-                .is_some_and(|text| text.contains("value = new"))
-        );
-
-        backend
-            .stage(&[PathBuf::from("tracked.txt")])
-            .expect("stage tracked file");
-        let staged_snapshot = backend.snapshot(100).expect("snapshot staged file");
-        assert_eq!(staged_snapshot.working.staged_count(), 1);
-        assert_eq!(staged_snapshot.working.unstaged_count(), 0);
-        let staged = backend
-            .diff(&DiffRequest {
-                path: PathBuf::from("tracked.txt"),
-                scope: DiffScope::Staged,
-            })
-            .expect("load staged diff");
-        assert!(
-            staged
-                .rows
-                .iter()
-                .any(|row| row.kind == DiffRowKind::Changed)
-        );
-
-        backend
-            .unstage(&[PathBuf::from("tracked.txt")])
-            .expect("unstage tracked file");
-        assert_eq!(
-            backend
-                .snapshot(100)
-                .expect("snapshot unstaged file")
-                .working
-                .staged_count(),
-            0
-        );
-        backend
-            .stage(&[PathBuf::from("tracked.txt")])
-            .expect("restage tracked file");
-        let id = backend
-            .commit(&CommitInput {
-                summary: "fix(core): committed through backend".to_owned(),
-                body: "Verified staged index content.".to_owned(),
-                amend: false,
-            })
-            .expect("create commit");
-        let committed = backend.snapshot(100).expect("snapshot committed state");
-        assert_eq!(committed.head_id.as_deref(), Some(id.as_str()));
-        assert!(committed.working.files.is_empty());
-        assert_eq!(committed.commits.len(), 2);
-        assert_eq!(
-            backend
-                .commit_detail(&id, false)
-                .expect("load created commit")
-                .body,
-            "Verified staged index content."
-        );
-        let empty = backend
-            .commit(&CommitInput {
-                summary: "fix(core): rejected empty index".to_owned(),
-                body: String::new(),
-                amend: false,
-            })
-            .expect_err("reject commit without staged changes");
-        assert!(empty.to_string().contains("no staged changes"));
-
-        let amended = backend
-            .commit(&CommitInput {
-                summary: "fix(core): amended through backend".to_owned(),
-                body: String::new(),
-                amend: true,
-            })
-            .expect("amend without staged changes");
-        assert_ne!(amended, id);
-        let after_amend = backend.snapshot(100).expect("snapshot amended state");
-        assert_eq!(after_amend.commits.len(), 2);
-        assert_eq!(
-            backend
-                .commit_detail(&amended, false)
-                .expect("load amended commit")
-                .subject,
-            "fix(core): amended through backend"
-        );
-    }
-
-    #[test]
     fn walk_marks_commits_unreachable_from_remotes_as_local() {
         let (directory, repository) = repository_with_commit();
         let pushed = repository
@@ -3017,6 +2910,113 @@ mod tests {
         assert_ne!(
             backend.refs_signature().expect("signature after branch"),
             baseline
+        );
+    }
+
+    #[test]
+    fn stage_diff_commit_and_amend_use_real_index_and_objects() {
+        let (directory, _repository) = repository_with_commit();
+        std::fs::write(
+            directory.path().join("tracked.txt"),
+            "alpha\nvalue = new\nomega\n",
+        )
+        .expect("modify tracked file");
+        let backend = GitBackend::discover(directory.path()).expect("discover repository");
+        let unstaged_request = DiffRequest {
+            path: PathBuf::from("tracked.txt"),
+            scope: DiffScope::Unstaged,
+        };
+        let unstaged = backend.diff(&unstaged_request).expect("load unstaged diff");
+        assert!(
+            unstaged.rows.iter().any(|row| {
+                row.kind == DiffRowKind::Changed && row.old_mark.is_some() && row.new_mark.is_some()
+            }),
+            "{:#?}",
+            unstaged.rows
+        );
+        assert!(
+            unstaged
+                .content
+                .as_deref()
+                .is_some_and(|text| text.contains("value = new"))
+        );
+
+        backend
+            .stage(&[PathBuf::from("tracked.txt")])
+            .expect("stage tracked file");
+        let staged_snapshot = backend.snapshot(100).expect("snapshot staged file");
+        assert_eq!(staged_snapshot.working.staged_count(), 1);
+        assert_eq!(staged_snapshot.working.unstaged_count(), 0);
+        let staged = backend
+            .diff(&DiffRequest {
+                path: PathBuf::from("tracked.txt"),
+                scope: DiffScope::Staged,
+            })
+            .expect("load staged diff");
+        assert!(
+            staged
+                .rows
+                .iter()
+                .any(|row| row.kind == DiffRowKind::Changed)
+        );
+
+        backend
+            .unstage(&[PathBuf::from("tracked.txt")])
+            .expect("unstage tracked file");
+        assert_eq!(
+            backend
+                .snapshot(100)
+                .expect("snapshot unstaged file")
+                .working
+                .staged_count(),
+            0
+        );
+        backend
+            .stage(&[PathBuf::from("tracked.txt")])
+            .expect("restage tracked file");
+        let id = backend
+            .commit(&CommitInput {
+                summary: "fix(core): committed through backend".to_owned(),
+                body: "Verified staged index content.".to_owned(),
+                amend: false,
+            })
+            .expect("create commit");
+        let committed = backend.snapshot(100).expect("snapshot committed state");
+        assert_eq!(committed.head_id.as_deref(), Some(id.as_str()));
+        assert!(committed.working.files.is_empty());
+        assert_eq!(committed.commits.len(), 2);
+        assert_eq!(
+            backend
+                .commit_detail(&id, false)
+                .expect("load created commit")
+                .body,
+            "Verified staged index content."
+        );
+        let empty = backend
+            .commit(&CommitInput {
+                summary: "fix(core): rejected empty index".to_owned(),
+                body: String::new(),
+                amend: false,
+            })
+            .expect_err("reject commit without staged changes");
+        assert!(empty.to_string().contains("no staged changes"));
+
+        let amended = backend
+            .commit(&CommitInput {
+                summary: "fix(core): amended through backend".to_owned(),
+                body: String::new(),
+                amend: true,
+            })
+            .expect("amend without staged changes");
+        assert_ne!(amended, id);
+        let after_amend = backend.snapshot(100).expect("snapshot amended state");
+        assert_eq!(after_amend.commits.len(), 2);
+        assert_eq!(
+            backend
+                .commit_detail(&amended, false)
+                .expect("load amended commit")
+                .subject,
+            "fix(core): amended through backend"
         );
     }
 
