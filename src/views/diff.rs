@@ -60,7 +60,7 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
         let (label, action) = match request.scope {
             DiffScope::Staged => ("Unstage File", UiAction::UnstageFile(request.path.clone())),
             DiffScope::Unstaged => ("Stage File", UiAction::StageFile(request.path.clone())),
-            DiffScope::Commit(_) => ("", UiAction::DismissOverlay),
+            DiffScope::Commit(_) | DiffScope::CommitRange { .. } => ("", UiAction::DismissOverlay),
         };
         if !label.is_empty() {
             let action_rect = Rect::new(header.right() - 146.0, header.y + 6.0, 102.0, 27.0);
@@ -84,7 +84,9 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
     if state
         .selected_file
         .as_ref()
-        .is_some_and(|request| !matches!(request.scope, DiffScope::Commit(_)))
+        .is_some_and(|request| {
+            matches!(request.scope, DiffScope::Staged | DiffScope::Unstaged)
+        })
     {
         let scope_label = match state.selected_file.as_ref().map(|request| &request.scope) {
             Some(DiffScope::Staged) => format!("Staged  {}", icons::CHEVRON_DOWN),

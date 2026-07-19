@@ -8,7 +8,7 @@ use num_traits::ToPrimitive;
 
 use crate::{
     app::state::AppState,
-    git::models::{ChangeKind, CommitDetail, FileChange},
+    git::models::{ChangeKind, CommitDetail, DiffScope, FileChange},
     graph::avatars,
     ui::{
         FontFace, RADIUS_MD, RADIUS_SM, Rect, Scene, Theme,
@@ -507,16 +507,18 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
                         change,
                         depth,
                     } => {
+                        let scope = DiffScope::Commit(detail.id.clone());
                         draw_file_row(
-                            scene, state, theme, file_clip, row, path, *change, &detail.id, *depth,
+                            scene, state, theme, file_clip, row, path, *change, &scope, *depth,
                             false,
                         );
                     }
                 }
             } else {
                 let (path, change) = files[index];
+                let scope = DiffScope::Commit(detail.id.clone());
                 draw_file_row(
-                    scene, state, theme, file_clip, row, path, change, &detail.id, 0, true,
+                    scene, state, theme, file_clip, row, path, change, &scope, 0, true,
                 );
             }
         }

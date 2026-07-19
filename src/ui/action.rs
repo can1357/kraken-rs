@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::git::models::DiffLineSelection;
+use crate::git::models::{DiffLineSelection, DiffScope};
 
 /// Draggable divider whose position is persisted in application state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,8 +59,8 @@ pub(crate) enum UiAction {
     SelectWip,
     SelectFile {
         path: PathBuf,
-        staged: bool,
-        commit: Option<String>,
+        /// Tree/index/worktree pair the diff should compare.
+        scope: DiffScope,
     },
     StageFile(PathBuf),
     ToggleSection(String),

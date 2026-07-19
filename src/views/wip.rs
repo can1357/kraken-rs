@@ -2,7 +2,7 @@ use num_traits::ToPrimitive;
 
 use crate::{
     app::state::{AppState, FocusField},
-    git::models::{ChangeKind, WorkingFile},
+    git::models::{ChangeKind, DiffScope, WorkingFile},
     ui::{
         FontFace, RADIUS_MD, RADIUS_SM, Rect, Scene, Theme,
         action::{CursorHint, ScrollTarget, UiAction},
@@ -463,8 +463,11 @@ fn file_rows(
             view,
             UiAction::SelectFile {
                 path: file.path.clone(),
-                staged,
-                commit: None,
+                scope: if staged {
+                    DiffScope::Staged
+                } else {
+                    DiffScope::Unstaged
+                },
             },
             CursorHint::Pointer,
             None,
