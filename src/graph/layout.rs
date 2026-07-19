@@ -241,6 +241,7 @@ mod tests {
             email: "tester@example.com".to_owned(),
             authored_seconds: 0,
             parents: parents.iter().map(|parent| (*parent).to_owned()).collect(),
+            is_local: false,
             refs: Vec::new(),
             branch_refs: Vec::new(),
         }
@@ -331,6 +332,7 @@ mod tests {
                     authored_seconds: 0,
                     email: "tester@example.com".to_owned(),
                     parents: parent.into_iter().collect(),
+                    is_local: false,
                     refs: Vec::new(),
                     branch_refs: Vec::new(),
                 }

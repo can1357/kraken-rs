@@ -859,7 +859,17 @@ impl AppState {
         self.focus = FocusField::None;
     }
 
+    /// Promotes `path` to the top of the recent-repository list; the settings
+    /// file is only rewritten when the front entry actually changes.
     fn remember_repository(&mut self, path: &Path, name: &str) {
+        if self
+            .settings
+            .recent_repos
+            .first()
+            .is_some_and(|recent| recent.path == path && recent.name == name)
+        {
+            return;
+        }
         self.settings
             .recent_repos
             .retain(|recent| recent.path != path);
@@ -3459,7 +3469,7 @@ impl AppState {
         self.ai_message = None;
         if let Some(detail) = self.detail.clone() {
             self.ai_loading = true;
-            if detail.is_local {
+            if self.commit_is_local(&detail.id) {
                 self.ai.recompose(detail);
             } else {
                 self.ai.explain(detail);

@@ -60,6 +60,8 @@ pub(crate) struct CommitSummary {
     pub(crate) email: String,
     pub(crate) authored_seconds: i64,
     pub(crate) parents: Vec<String>,
+    /// True when no remote branch can reach this commit (an unpushed commit).
+    pub(crate) is_local: bool,
     pub(crate) refs: Vec<RefLabel>,
     pub(crate) branch_refs: Vec<CommitBranchRef>,
 }
@@ -160,6 +162,9 @@ pub(crate) struct RepoSnapshot {
     pub(crate) working: WorkingTree,
     pub(crate) loaded_limit: usize,
     pub(crate) has_more: bool,
+    /// Digest of all references when the snapshot was taken; lets the
+    /// filesystem watcher skip history re-walks while no reference moves.
+    pub(crate) refs_sig: u64,
 }
 
 impl RepoSnapshot {
@@ -205,6 +210,8 @@ pub(crate) struct CommitDetail {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum DiffScope {
     Commit(String),
+    /// Inclusive multi-commit selection: `parent(oldest)` vs `newest` trees.
+    CommitRange { oldest: String, newest: String },
     Staged,
     Unstaged,
 }

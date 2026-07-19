@@ -88,12 +88,13 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
         .unwrap_or(14.0)
         * 6.5;
 
-    let ai_label = if detail.is_local {
+    let is_local = state.commit_is_local(&detail.id);
+    let ai_label = if is_local {
         format!("{} Recompose with AI", icons::SPARKLE)
     } else {
         format!("{} Explain commit", icons::SPARKLE)
     };
-    let ai_width = if detail.is_local { 145.0 } else { 125.0 };
+    let ai_width = if is_local { 145.0 } else { 125.0 };
     // The close button is small and on the right.
     let close = Rect::new(header.right() - 25.0, header.y + 6.0, 19.0, 26.0);
     let ai = Rect::new(close.x - ai_width - 8.0, header.y + 6.0, ai_width, 26.0);

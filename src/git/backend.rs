@@ -363,7 +363,28 @@ impl Backend for GitBackend {
             files,
             all_files,
             conflicts: parse_conflicts(message),
-            is_local: !is_reachable_from_remote(&repository, commit.id()),
+        })
+    }
+
+    fn range_detail(&self, oldest: &str, newest: &str) -> Result<RangeDetail> {
+        let repository = self.open()?;
+        let (base_tree, newest_tree, oldest_id, newest_id) =
+            range_trees(&repository, oldest, newest)?;
+        let mut options = DiffOptions::new();
+        options.include_typechange(true);
+        let mut diff = repository
+            .diff_tree_to_tree(base_tree.as_ref(), Some(&newest_tree), Some(&mut options))
+            .context("diff selected commit range")?;
+        diff.find_similar(Some(DiffFindOptions::new().renames(true)))
+            .context("detect range renames")?;
+        let mut files = file_changes(&diff)?;
+        files.sort_by(|left, right| left.path.cmp(&right.path));
+        Ok(RangeDetail {
+            oldest: oldest_id.to_string(),
+            newest: newest_id.to_string(),
+            oldest_short: short_id(oldest_id),
+            newest_short: short_id(newest_id),
+            files,
         })
     }
 
@@ -1851,6 +1872,7 @@ fn worktree_change(status: Status) -> Option<ChangeKind> {
 fn read_commits(
     repository: &Repository,
     limit: usize,
+    branches: &[BranchInfo],
     labels: &HashMap<String, Vec<RefLabel>>,
     branch_refs: &HashMap<String, Vec<CommitBranchRef>>,
 ) -> Result<(Vec<CommitSummary>, bool)> {
@@ -1879,6 +1901,14 @@ fn read_commits(
     if pushed.is_empty() {
         return Ok((Vec::new(), false));
     }
+    // Remote reachability propagates child-to-parent along the topological
+    // walk (children always precede parents), replacing the old per-commit
+    // merge-base queries that made selecting commits O(remotes × history).
+    let mut remote_reachable: HashSet<Oid> = branches
+        .iter()
+        .filter(|branch| branch.remote)
+        .filter_map(|branch| Oid::from_str(&branch.target).ok())
+        .collect();
     let mut commits = Vec::with_capacity(limit.min(10_000));
     for result in walk.take(limit.saturating_add(1)) {
         let oid = result.context("walk commit")?;
@@ -1886,8 +1916,15 @@ fn read_commits(
             return Ok((commits, true));
         }
         let commit = repository.find_commit(oid).context("load walked commit")?;
+        let is_local = !remote_reachable.contains(&oid);
+        if !is_local {
+            for parent in commit.parent_ids() {
+                remote_reachable.insert(parent);
+            }
+        }
+        let id = oid.to_string();
+        let author = commit.author();
         commits.push(CommitSummary {
-            id: oid.to_string(),
             short_id: short_id(oid),
             subject: commit.summary().unwrap_or("(no commit message)").to_owned(),
             description: commit
@@ -1895,18 +1932,17 @@ fn read_commits(
                 .and_then(|body| body.lines().find(|line| !line.trim().is_empty()))
                 .map(|line| line.trim().chars().take(160).collect())
                 .unwrap_or_default(),
-            author: commit.author().name().unwrap_or("Unknown").to_owned(),
-            email: commit.author().email().unwrap_or_default().to_owned(),
+            author: author.name().unwrap_or("Unknown").to_owned(),
+            email: author.email().unwrap_or_default().to_owned(),
             authored_seconds: commit.time().seconds(),
             parents: commit
                 .parent_ids()
                 .map(|parent| parent.to_string())
                 .collect(),
-            refs: labels.get(&oid.to_string()).cloned().unwrap_or_default(),
-            branch_refs: branch_refs
-                .get(&oid.to_string())
-                .cloned()
-                .unwrap_or_default(),
+            is_local,
+            refs: labels.get(&id).cloned().unwrap_or_default(),
+            branch_refs: branch_refs.get(&id).cloned().unwrap_or_default(),
+            id,
         });
     }
     Ok((commits, false))
@@ -2372,19 +2408,6 @@ fn parse_conflicts(message: &str) -> Vec<PathBuf> {
     conflicts
 }
 
-fn is_reachable_from_remote(repository: &Repository, commit: Oid) -> bool {
-    let Ok(branches) = repository.branches(Some(BranchType::Remote)) else {
-        return false;
-    };
-    branches.flatten().any(|(branch, _)| {
-        branch.get().target().is_some_and(|target| {
-            target == commit
-                || repository
-                    .graph_descendant_of(target, commit)
-                    .unwrap_or(false)
-        })
-    })
-}
 /// Safe (dirty-tolerant) worktree checkout that reports conflicts with git's
 /// own wording, listing the conflicting paths like `git checkout`/`git merge`.
 fn checkout_tree_reporting(
@@ -2834,6 +2857,120 @@ mod tests {
                 .expect("load amended commit")
                 .subject,
             "fix(core): amended through backend"
+        );
+    }
+
+    #[test]
+    fn walk_marks_commits_unreachable_from_remotes_as_local() {
+        let (directory, repository) = repository_with_commit();
+        let pushed = repository
+            .head()
+            .and_then(|head| head.peel_to_commit())
+            .expect("initial commit")
+            .id();
+        repository
+            .reference(
+                "refs/remotes/origin/main",
+                pushed,
+                true,
+                "simulate pushed branch",
+            )
+            .expect("create remote tracking ref");
+        let unpushed = commit_file(&repository, "local.txt", "local\n", "feat: local only");
+        let backend = GitBackend::discover(directory.path()).expect("discover repository");
+        let snapshot = backend.snapshot(50).expect("load snapshot");
+        let by_id = |id: &str| {
+            snapshot
+                .commits
+                .iter()
+                .find(|commit| commit.id == id)
+                .expect("walked commit")
+        };
+        assert!(by_id(&unpushed.to_string()).is_local);
+        assert!(!by_id(&pushed.to_string()).is_local);
+    }
+
+    #[test]
+    fn range_detail_spans_oldest_parent_through_newest() {
+        let (directory, repository) = repository_with_commit();
+        let second = commit_file(&repository, "b.txt", "bee\n", "feat: added b").to_string();
+        let third = commit_file(&repository, "c.txt", "sea\n", "feat: added c").to_string();
+        let backend = GitBackend::discover(directory.path()).expect("discover repository");
+
+        let range = backend.range_detail(&second, &third).expect("range detail");
+        let paths = range
+            .files
+            .iter()
+            .map(|file| file.path.display().to_string())
+            .collect::<Vec<_>>();
+        // Includes the oldest selected commit's own changes, excludes its parent's.
+        assert_eq!(paths, ["b.txt", "c.txt"]);
+        assert_eq!(range.oldest, second);
+        assert_eq!(range.newest, third);
+
+        let document = backend
+            .diff(&DiffRequest {
+                path: PathBuf::from("b.txt"),
+                scope: DiffScope::CommitRange {
+                    oldest: second.clone(),
+                    newest: third.clone(),
+                },
+            })
+            .expect("range file diff");
+        assert!(
+            document
+                .rows
+                .iter()
+                .any(|row| row.kind == DiffRowKind::Added && row.new_text == "bee")
+        );
+    }
+
+    #[test]
+    fn history_pages_commits_without_scanning_the_worktree() {
+        let (directory, repository) = repository_with_commit();
+        commit_file(&repository, "b.txt", "bee\n", "feat: added b");
+        std::fs::write(directory.path().join("dirty.txt"), "dirty\n").expect("dirty worktree");
+        let backend = GitBackend::discover(directory.path()).expect("discover repository");
+
+        let history = backend.history(50).expect("page history");
+        assert_eq!(history.commits.len(), 2);
+        assert!(history.working.files.is_empty());
+
+        let snapshot = backend.snapshot(50).expect("full snapshot");
+        assert_eq!(snapshot.refs_sig, history.refs_sig);
+        assert!(!snapshot.working.files.is_empty());
+    }
+
+    #[test]
+    fn refs_signature_tracks_reference_motion_not_worktree_edits() {
+        let (directory, repository) = repository_with_commit();
+        let backend = GitBackend::discover(directory.path()).expect("discover repository");
+        let baseline = backend.refs_signature().expect("baseline signature");
+
+        std::fs::write(directory.path().join("noise.txt"), "noise\n").expect("write noise");
+        assert_eq!(
+            backend.refs_signature().expect("signature after edit"),
+            baseline
+        );
+        assert!(
+            backend
+                .working_status()
+                .expect("status-only scan")
+                .files
+                .iter()
+                .any(|file| file.path == Path::new("noise.txt"))
+        );
+
+        let head = repository
+            .head()
+            .and_then(|head| head.peel_to_commit())
+            .expect("head commit");
+        repository
+            .branch("feature/signature", &head, false)
+            .expect("create branch");
+        assert_ne!(
+            backend.refs_signature().expect("signature after branch"),
+            baseline
         );
     }
 
