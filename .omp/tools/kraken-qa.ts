@@ -208,7 +208,10 @@ const factory: CustomToolFactory = (pi) => ({
 
       case "click": {
         const session = requireSession();
-        const clickParams: Record<string, unknown> = {};
+        const clickParams: Record<string, unknown> = {
+          command: params.command ?? false,
+          shift: params.shift ?? false,
+        };
         if (params.selector !== undefined) {
           clickParams.selector = params.selector;
         } else {
