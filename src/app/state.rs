@@ -1,7 +1,8 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     process::Command,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -15,7 +16,7 @@ use crate::{
         backend::{Backend, GitBackend, LfsOperation},
         models::{
             CommitDetail, CommitInput, DiffDocument, DiffRequest, DiffRowKind, DiffScope,
-            RepoSnapshot,
+            RangeDetail, RepoSnapshot, WorkingTree,
         },
         runner::{GitEvent, GitJob, GitJobKind, GitPayload, GitRunner},
     },
@@ -922,9 +923,20 @@ impl AppState {
         if event.generation != self.generation {
             return;
         }
-        self.busy_jobs = self.busy_jobs.saturating_sub(1);
+        // Watcher-originated refreshes (no kind) were never counted as jobs.
+        if event.kind.is_some() {
+            self.busy_jobs = self.busy_jobs.saturating_sub(1);
+        }
         if let Some(op) = event.kind.as_ref().and_then(toolbar_op) {
             self.end_op(op);
+        }
+        if let Some(GitJobKind::LoadDetail { id, .. }) = event.kind.as_ref()
+            && self
+                .pending_detail
+                .as_ref()
+                .is_some_and(|(pending, _)| pending == id)
+        {
+            self.pending_detail = None;
         }
         let mutation = event.kind.as_ref().is_some_and(is_mutation_job);
         let fetch = matches!(event.kind.as_ref(), Some(GitJobKind::Fetch { .. }));
@@ -1417,7 +1429,7 @@ impl AppState {
                 {
                     self.loading_history = true;
                     self.requested_limit = self.requested_limit.saturating_mul(2).min(100_000);
-                    self.submit(GitJobKind::LoadSnapshot {
+                    self.submit(GitJobKind::LoadHistory {
                         limit: self.requested_limit,
                     });
                     self.toast = Some("Loading older commits…".to_owned());
@@ -2927,7 +2939,7 @@ impl AppState {
                 {
                     self.loading_history = true;
                     self.requested_limit = self.requested_limit.saturating_mul(2).min(100_000);
-                    self.submit(GitJobKind::LoadSnapshot {
+                    self.submit(GitJobKind::LoadHistory {
                         limit: self.requested_limit,
                     });
                 }
@@ -4424,7 +4436,9 @@ fn is_mutation_job(kind: &GitJobKind) -> bool {
     !matches!(
         kind,
         GitJobKind::LoadSnapshot { .. }
+            | GitJobKind::LoadHistory { .. }
             | GitJobKind::LoadDetail { .. }
+            | GitJobKind::LoadRangeDetail { .. }
             | GitJobKind::LoadDiff { .. }
     )
 }

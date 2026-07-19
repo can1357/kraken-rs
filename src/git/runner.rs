@@ -14,7 +14,7 @@ use crate::{
         backend::{Backend, GitBackend, LfsOperation},
         models::{
             CommitDetail, CommitInput, DiffDocument, DiffLineSelection, DiffRequest, PullOperation,
-            RepoSnapshot, WorkingTree,
+            RangeDetail, RepoSnapshot, WorkingTree,
         },
     },
 };
@@ -25,8 +25,19 @@ pub(crate) enum GitJobKind {
     LoadSnapshot {
         limit: usize,
     },
+    /// Pages older history without rescanning the working tree.
+    LoadHistory {
+        limit: usize,
+    },
     LoadDetail {
         id: String,
+        /// Also collect every tree path for the "view all files" mode.
+        include_tree: bool,
+    },
+    /// Combined diff metadata for an inclusive multi-commit selection.
+    LoadRangeDetail {
+        oldest: String,
+        newest: String,
     },
     LoadDiff {
         request: DiffRequest,
@@ -217,7 +228,9 @@ impl GitJobKind {
     pub(crate) fn success_message(&self) -> Option<String> {
         match self {
             Self::LoadSnapshot { .. }
+            | Self::LoadHistory { .. }
             | Self::LoadDetail { .. }
+            | Self::LoadRangeDetail { .. }
             | Self::LoadDiff { .. }
             | Self::Commit { .. } => None,
             Self::Stage { .. } => Some("Staged selected files".to_owned()),
@@ -300,8 +313,14 @@ pub(crate) struct GitJob {
 #[derive(Debug)]
 pub(crate) enum GitPayload {
     Snapshot(RepoSnapshot),
+    /// Paged history snapshot whose `working` tree was intentionally not
+    /// rescanned; the application keeps its current one.
+    History(RepoSnapshot),
     Detail(CommitDetail),
+    RangeDetail(RangeDetail),
     Diff(DiffDocument),
+    /// Watcher-detected index/worktree change with all references unmoved.
+    WorkingStatus(WorkingTree),
     Mutated {
         snapshot: RepoSnapshot,
         commit_id: Option<String>,
@@ -379,17 +398,28 @@ fn worker_loop(
                 let limit = snapshot_limit(&job.kind);
                 let kind = job.kind.clone();
                 let result = execute(job).map_err(|error| format!("{error:#}"));
-                if let (Some(limit), Ok(payload)) = (limit, &result)
-                    && let Some(working) = payload_working(payload)
-                {
-                    let repository = WatchedRepository {
-                        generation,
-                        path,
-                        limit,
-                        working: working.clone(),
-                    };
-                    _watcher = arm_watcher(&repository.path, &filesystem_sender).ok();
-                    watched = Some(repository);
+                match (limit, &result) {
+                    (Some(limit), Ok(payload)) => {
+                        if let Some(snapshot) = payload_snapshot(payload) {
+                            let repository = WatchedRepository {
+                                generation,
+                                path,
+                                limit,
+                                working: snapshot.working.clone(),
+                                refs_sig: snapshot.refs_sig,
+                            };
+                            _watcher = arm_watcher(&repository.path, &filesystem_sender).ok();
+                            watched = Some(repository);
+                        } else if let (GitPayload::History(snapshot), Some(repository)) =
+                            (payload, watched.as_mut())
+                        {
+                            // Paging raises the depth future refreshes must
+                            // reload, but leaves the watched working tree as-is.
+                            repository.limit = limit;
+                            repository.refs_sig = snapshot.refs_sig;
+                        }
+                    }
+                    _ => {}
                 }
                 if events
                     .send(GitEvent {
@@ -434,6 +464,12 @@ fn event_is_relevant(event: &Event) -> bool {
                 .is_none_or(|name| !name.to_string_lossy().ends_with(".lock"))
     })
 }
+/// Handles one debounced filesystem event batch for the watched repository.
+///
+/// References unmoved means the graph cannot have changed, so the refresh
+/// downgrades to a status-only scan: no event at all when the working tree is
+/// also unchanged, a [`GitPayload::WorkingStatus`] patch when only it changed,
+/// and a full snapshot only when a branch, tag, or HEAD actually moved.
 fn refresh_watched(
     watched: &mut Option<WatchedRepository>,
     events: &Sender<GitEvent>,
@@ -442,17 +478,31 @@ fn refresh_watched(
     let Some(repository) = watched.as_mut() else {
         return true;
     };
-    let Ok(snapshot) = GitBackend::discover(&repository.path)
-        .and_then(|backend| backend.snapshot(repository.limit))
-    else {
+    let Ok(backend) = GitBackend::discover(&repository.path) else {
         return true;
     };
-    repository.working.clone_from(&snapshot.working);
+    let payload = if backend.refs_signature().ok() == Some(repository.refs_sig) {
+        let Ok(working) = backend.working_status() else {
+            return true;
+        };
+        if working == repository.working {
+            return true;
+        }
+        repository.working.clone_from(&working);
+        GitPayload::WorkingStatus(working)
+    } else {
+        let Ok(snapshot) = backend.snapshot(repository.limit) else {
+            return true;
+        };
+        repository.refs_sig = snapshot.refs_sig;
+        repository.working.clone_from(&snapshot.working);
+        GitPayload::Snapshot(snapshot)
+    };
     if events
         .send(GitEvent {
             generation: repository.generation,
             kind: None,
-            result: Ok(GitPayload::Snapshot(snapshot)),
+            result: Ok(payload),
         })
         .is_err()
     {
@@ -473,6 +523,8 @@ struct WatchedRepository {
     path: PathBuf,
     limit: usize,
     working: WorkingTree,
+    /// Digest of every reference at the last delivered snapshot.
+    refs_sig: u64,
 }
 
 fn snapshot_limit(kind: &GitJobKind) -> Option<usize> {
@@ -518,18 +570,25 @@ fn snapshot_limit(kind: &GitJobKind) -> Option<usize> {
         | GitJobKind::SparseCheckout { limit, .. }
         | GitJobKind::TrackLfsPattern { limit, .. }
         | GitJobKind::IgnorePattern { limit, .. }
-        | GitJobKind::AddRemote { limit, .. } => Some(*limit),
-        GitJobKind::LoadDetail { .. } | GitJobKind::LoadDiff { .. } => None,
-        GitJobKind::Clone { .. } => None,
+        | GitJobKind::AddRemote { limit, .. }
+        | GitJobKind::LoadHistory { limit } => Some(*limit),
+        GitJobKind::LoadDetail { .. }
+        | GitJobKind::LoadRangeDetail { .. }
+        | GitJobKind::LoadDiff { .. }
+        | GitJobKind::Clone { .. } => None,
     }
 }
 
-fn payload_working(payload: &GitPayload) -> Option<&WorkingTree> {
+/// The snapshot payloads that re-arm the filesystem watcher.
+fn payload_snapshot(payload: &GitPayload) -> Option<&RepoSnapshot> {
     match payload {
-        GitPayload::Snapshot(snapshot) | GitPayload::Mutated { snapshot, .. } => {
-            Some(&snapshot.working)
-        }
-        GitPayload::Detail(_) | GitPayload::Diff(_) | GitPayload::Cloned(_) => None,
+        GitPayload::Snapshot(snapshot) | GitPayload::Mutated { snapshot, .. } => Some(snapshot),
+        GitPayload::History(_)
+        | GitPayload::Detail(_)
+        | GitPayload::RangeDetail(_)
+        | GitPayload::Diff(_)
+        | GitPayload::WorkingStatus(_)
+        | GitPayload::Cloned(_) => None,
     }
 }
 
@@ -549,7 +608,13 @@ fn execute(job: GitJob) -> anyhow::Result<GitPayload> {
     let backend = GitBackend::discover_with_settings(job.path, job.settings)?;
     match job.kind {
         GitJobKind::LoadSnapshot { limit } => backend.snapshot(limit).map(GitPayload::Snapshot),
-        GitJobKind::LoadDetail { id } => backend.commit_detail(&id).map(GitPayload::Detail),
+        GitJobKind::LoadHistory { limit } => backend.history(limit).map(GitPayload::History),
+        GitJobKind::LoadDetail { id, include_tree } => backend
+            .commit_detail(&id, include_tree)
+            .map(GitPayload::Detail),
+        GitJobKind::LoadRangeDetail { oldest, newest } => backend
+            .range_detail(&oldest, &newest)
+            .map(GitPayload::RangeDetail),
         GitJobKind::LoadDiff { request } => backend.diff(&request).map(GitPayload::Diff),
         GitJobKind::StageLines { path, lines, limit } => {
             backend.stage_lines(&path, &lines)?;

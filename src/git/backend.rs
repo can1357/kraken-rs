@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    hash::{Hash, Hasher},
     path::{Path, PathBuf},
     process::Command,
 };
@@ -15,8 +16,8 @@ use similar::{DiffTag, TextDiff};
 use crate::git::models::{
     BranchInfo, ChangeKind, CommitBranchRef, CommitDetail, CommitInput, CommitSummary,
     DiffDocument, DiffLineSelection, DiffRequest, DiffRow, DiffRowKind, DiffScope, FileChange,
-    PullOperation, RefKind, RefLabel, RepoSnapshot, StashInfo, WorkingFile, WorkingTree,
-    WorktreeInfo,
+    PullOperation, RangeDetail, RefKind, RefLabel, RepoSnapshot, StashInfo, WorkingFile,
+    WorkingTree, WorktreeInfo,
 };
 use crate::settings::Settings;
 
@@ -24,8 +25,14 @@ use crate::settings::Settings;
 pub(crate) trait Backend {
     /// Captures branches, refs, status, and a bounded topological history.
     fn snapshot(&self, limit: usize) -> Result<RepoSnapshot>;
-    /// Loads metadata and changed paths for one commit.
-    fn commit_detail(&self, id: &str) -> Result<CommitDetail>;
+    /// Like [`Backend::snapshot`] but skips the worktree status scan; used to
+    /// page older history where the working tree cannot have changed.
+    fn history(&self, limit: usize) -> Result<RepoSnapshot>;
+    /// Loads metadata and changed paths for one commit. `include_tree` also
+    /// collects every path in the commit tree for the "view all files" mode.
+    fn commit_detail(&self, id: &str, include_tree: bool) -> Result<CommitDetail>;
+    /// Combined changes of an inclusive commit range: `parent(oldest)` vs `newest`.
+    fn range_detail(&self, oldest: &str, newest: &str) -> Result<RangeDetail>;
     /// Builds an aligned split diff for one committed or working file.
     fn diff(&self, request: &DiffRequest) -> Result<DiffDocument>;
     /// Adds selected worktree paths to the index.
@@ -235,51 +242,91 @@ impl GitBackend {
             .context("resolve signed commit")?
             .to_string())
     }
+
+    /// Reads only the combined index/worktree status; the watcher uses this to
+    /// avoid full snapshots when no reference moved.
+    pub(crate) fn working_status(&self) -> Result<WorkingTree> {
+        read_status(&self.open()?)
+    }
+
+    /// Order-independent digest of every reference name and target plus HEAD.
+    ///
+    /// Two equal signatures mean no branch, tag, or HEAD motion happened, so a
+    /// filesystem-watcher refresh can skip re-walking history entirely.
+    pub(crate) fn refs_signature(&self) -> Result<u64> {
+        Ok(refs_signature_of(&self.open()?))
+    }
+
+    fn snapshot_inner(&self, limit: usize, include_status: bool) -> Result<RepoSnapshot> {
+        // The status scan is the dominant cost on large worktrees and touches
+        // only the index/workdir, so it runs on its own repository handle in
+        // parallel with reference enumeration and the commit walk.
+        std::thread::scope(|scope| {
+            let status = include_status.then(|| {
+                scope.spawn(|| -> Result<WorkingTree> { read_status(&self.open()?) })
+            });
+            let mut repository = self.open()?;
+            let refs_sig = refs_signature_of(&repository);
+            let head = head_name(&repository);
+            let head_id = repository
+                .head()
+                .ok()
+                .and_then(|reference| reference.peel_to_commit().ok())
+                .map(|commit| commit.id().to_string());
+            let branches = read_branches(&repository)?;
+            let worktrees = read_worktrees(&repository)?;
+            let ref_index = read_labels(&repository, &branches, &worktrees, head_id.as_deref())?;
+            let stashes = read_stashes(&mut repository)?;
+            let (commits, has_more) = read_commits(
+                &repository,
+                limit.max(1),
+                &branches,
+                &ref_index.by_commit,
+                &ref_index.branch_refs_by_commit,
+            )?;
+            let working = status
+                .map(|handle| {
+                    handle
+                        .join()
+                        .map_err(|_| anyhow!("worktree status scan panicked"))?
+                })
+                .transpose()?
+                .unwrap_or_default();
+            let name = self
+                .path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("repository")
+                .to_owned();
+            Ok(RepoSnapshot {
+                path: self.path.clone(),
+                name,
+                head,
+                head_id,
+                branches,
+                tags: ref_index.tags,
+                stashes,
+                worktrees,
+                commits,
+                working,
+                loaded_limit: limit,
+                has_more,
+                refs_sig,
+            })
+        })
+    }
 }
 
 impl Backend for GitBackend {
     fn snapshot(&self, limit: usize) -> Result<RepoSnapshot> {
-        let mut repository = self.open()?;
-        let head = head_name(&repository);
-        let head_id = repository
-            .head()
-            .ok()
-            .and_then(|reference| reference.peel_to_commit().ok())
-            .map(|commit| commit.id().to_string());
-        let branches = read_branches(&repository)?;
-        let worktrees = read_worktrees(&repository)?;
-        let ref_index = read_labels(&repository, &branches, &worktrees, head_id.as_deref())?;
-        let stashes = read_stashes(&mut repository)?;
-        let working = read_status(&repository)?;
-        let (commits, has_more) = read_commits(
-            &repository,
-            limit.max(1),
-            &ref_index.by_commit,
-            &ref_index.branch_refs_by_commit,
-        )?;
-        let name = self
-            .path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("repository")
-            .to_owned();
-        Ok(RepoSnapshot {
-            path: self.path.clone(),
-            name,
-            head,
-            head_id,
-            branches,
-            tags: ref_index.tags,
-            stashes,
-            worktrees,
-            commits,
-            working,
-            loaded_limit: limit,
-            has_more,
-        })
+        self.snapshot_inner(limit, true)
     }
 
-    fn commit_detail(&self, id: &str) -> Result<CommitDetail> {
+    fn history(&self, limit: usize) -> Result<RepoSnapshot> {
+        self.snapshot_inner(limit, false)
+    }
+
+    fn commit_detail(&self, id: &str, include_tree: bool) -> Result<CommitDetail> {
         let repository = self.open()?;
         let oid = Oid::from_str(id).with_context(|| format!("parse commit id {id}"))?;
         let commit = repository
@@ -296,7 +343,7 @@ impl Backend for GitBackend {
             .context("detect commit renames")?;
         let mut files = file_changes(&diff)?;
         files.sort_by(|left, right| left.path.cmp(&right.path));
-        let all_files = tree_paths(&tree)?;
+        let all_files = include_tree.then(|| tree_paths(&tree)).transpose()?;
         let message = commit.message().unwrap_or_default();
         let body = commit.body().unwrap_or_default().trim().to_owned();
         let author = commit.author();
@@ -1353,6 +1400,30 @@ fn write_index_content(
             .with_context(|| format!("write selected lines to index for {}", path.display()))?;
     }
     index.write().context("write selected-line index")
+}
+
+/// Order-independent digest of all reference names/targets plus HEAD; equal
+/// digests mean no branch, tag, or HEAD moved between two repository reads.
+fn refs_signature_of(repository: &Repository) -> u64 {
+    let mut digest = 0u64;
+    if let Ok(references) = repository.references() {
+        for reference in references.flatten() {
+            let mut hasher = std::hash::DefaultHasher::new();
+            reference.name_bytes().hash(&mut hasher);
+            reference.target().hash(&mut hasher);
+            reference.symbolic_target_bytes().hash(&mut hasher);
+            // XOR keeps the digest independent of enumeration order.
+            digest ^= hasher.finish();
+        }
+    }
+    let mut hasher = std::hash::DefaultHasher::new();
+    head_name(repository).hash(&mut hasher);
+    repository
+        .head()
+        .ok()
+        .and_then(|head| head.target())
+        .hash(&mut hasher);
+    digest ^ hasher.finish()
 }
 
 fn head_name(repository: &Repository) -> String {
