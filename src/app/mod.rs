@@ -253,6 +253,10 @@ impl ApplicationHandler<UserEvent> for NativeApplication {
             }
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers.state();
+                // Graph multi-select consults these at dispatch time.
+                state.modifier_shift = self.modifiers.shift_key();
+                state.modifier_primary =
+                    self.modifiers.super_key() || self.modifiers.control_key();
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 let command = self.modifiers.super_key();

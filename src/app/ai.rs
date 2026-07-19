@@ -109,7 +109,7 @@ pub(crate) struct AiEvent {
 
 /// Serializes provider calls away from the winit event loop.
 pub(crate) struct AiRunner {
-    requests: Sender<(AiTask, CommitDetail)>,
+    requests: Sender<(AiTask, Arc<CommitDetail>)>,
     events: Receiver<AiEvent>,
 }
 
@@ -119,7 +119,7 @@ impl AiRunner {
         provider: Arc<dyn AiProvider>,
         event_loop_proxy: Option<EventLoopProxy<UserEvent>>,
     ) -> Self {
-        let (request_sender, request_receiver) = unbounded::<(AiTask, CommitDetail)>();
+        let (request_sender, request_receiver) = unbounded::<(AiTask, Arc<CommitDetail>)>();
         let (event_sender, event_receiver) = unbounded::<AiEvent>();
         thread::Builder::new()
             .name("kraken-ai".to_owned())
@@ -144,12 +144,12 @@ impl AiRunner {
     }
 
     /// Requests an explanation without blocking rendering.
-    pub(crate) fn explain(&self, commit: CommitDetail) {
+    pub(crate) fn explain(&self, commit: Arc<CommitDetail>) {
         let _ = self.requests.send((AiTask::Explain, commit));
     }
 
     /// Requests a commit-message rewrite without blocking rendering.
-    pub(crate) fn recompose(&self, commit: CommitDetail) {
+    pub(crate) fn recompose(&self, commit: Arc<CommitDetail>) {
         let _ = self.requests.send((AiTask::Recompose, commit));
     }
 

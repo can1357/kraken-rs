@@ -303,7 +303,7 @@ pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Re
             if row.bottom() < body.y || row.y > body.bottom() {
                 continue;
             }
-            let selected = state.selected_commit.as_deref() == Some(commit.id.as_str());
+            let selected = state.is_commit_selected(&commit.id);
             let matched = search_results.binary_search(&index).is_ok();
             let current_match = search_results
                 .get(state.search_cursor)
@@ -618,11 +618,11 @@ fn build_header(
     );
     if date.width > 0.0 {
         scene.text(
-            "COMMIT DATE / TIME",
-            [date.x + 8.0, date.y + 6.0],
+            icons::HISTORY,
+            [date.x + 9.0, date.y + 6.0],
             date,
             theme.text_dim,
-            11.0,
+            12.0,
             13.0,
             FontFace::SansMedium,
         );

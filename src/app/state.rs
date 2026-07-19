@@ -286,7 +286,23 @@ pub(crate) struct AppState {
     pub(crate) terminal_focused: bool,
     overlay_focus: FocusField,
     pub(crate) selected_commit: Option<String>,
-    pub(crate) detail: Option<CommitDetail>,
+    /// Every selected commit id, lead included; two or more entries switch the
+    /// detail panel to the combined range view.
+    pub(crate) selected_commits: HashSet<String>,
+    /// Range pivot: the last plainly clicked or toggled-in commit.
+    selection_anchor: Option<String>,
+    pub(crate) detail: Option<Arc<CommitDetail>>,
+    /// Combined-range detail shown while two or more commits are selected.
+    pub(crate) range_detail: Option<Arc<RangeDetail>>,
+    /// Immutable commit details already fetched for this repository, FIFO-bounded.
+    detail_cache: HashMap<String, Arc<CommitDetail>>,
+    detail_cache_order: VecDeque<String>,
+    range_cache: HashMap<(String, String), Arc<RangeDetail>>,
+    /// Commit id and `include_tree` flag of the in-flight `LoadDetail` request.
+    pending_detail: Option<(String, bool)>,
+    /// Live keyboard modifiers; shift extends and primary toggles graph selection.
+    pub(crate) modifier_shift: bool,
+    pub(crate) modifier_primary: bool,
     pub(crate) selected_file: Option<DiffRequest>,
     pub(crate) diff: Option<DiffDocument>,
     pub(crate) palette: Option<crate::views::palette::PaletteState>,
@@ -421,12 +437,12 @@ impl AppState {
             ScreenshotView::Graph => {
                 state.main_view = MainView::Graph;
                 if let Some(id) = state.selected_commit.clone() {
-                    state.detail = Some(backend.commit_detail(&id)?);
+                    state.detail = Some(Arc::new(backend.commit_detail(&id, false)?));
                 }
             }
             ScreenshotView::Wip => {
                 state.main_view = MainView::Wip;
-                state.selected_commit = None;
+                state.select_only(None);
                 state.detail = None;
             }
             ScreenshotView::Diff | ScreenshotView::File => {
@@ -453,14 +469,14 @@ impl AppState {
                         .selected_commit
                         .clone()
                         .context("repository has no commit to diff")?;
-                    let detail = backend.commit_detail(&id)?;
+                    let detail = backend.commit_detail(&id, false)?;
                     let path = detail
                         .files
                         .first()
                         .context("selected commit has no changed file")?
                         .path
                         .clone();
-                    state.detail = Some(detail);
+                    state.detail = Some(Arc::new(detail));
                     DiffRequest {
                         path,
                         scope: DiffScope::Commit(id),
@@ -511,7 +527,16 @@ impl AppState {
             preference_text: TextField::default(),
             overlay_focus: FocusField::None,
             selected_commit: None,
+            selected_commits: HashSet::new(),
+            selection_anchor: None,
             detail: None,
+            range_detail: None,
+            detail_cache: HashMap::new(),
+            detail_cache_order: VecDeque::new(),
+            range_cache: HashMap::new(),
+            pending_detail: None,
+            modifier_shift: false,
+            modifier_primary: false,
             selected_file: None,
             diff: None,
             palette: None,
@@ -762,6 +787,11 @@ impl AppState {
         self.snapshot = None;
         self.detail = None;
         self.diff = None;
+        self.select_only(None);
+        self.detail_cache.clear();
+        self.detail_cache_order.clear();
+        self.range_cache.clear();
+        self.pending_detail = None;
         self.graph = GraphLayout::default();
         self.busy_jobs = 0;
         self.inflight_ops = [0; TOOLBAR_OPS];
@@ -823,7 +853,7 @@ impl AppState {
         self.snapshot = None;
         self.detail = None;
         self.diff = None;
-        self.selected_commit = None;
+        self.select_only(None);
         self.selected_file = None;
         self.focus = FocusField::None;
     }
@@ -902,15 +932,26 @@ impl AppState {
             Ok(GitPayload::Snapshot(snapshot)) => {
                 self.loading_history = false;
                 self.apply_snapshot(snapshot);
-                if let Some(id) = self.selected_commit.clone() {
-                    self.submit(GitJobKind::LoadDetail { id });
-                }
+                self.refresh_selection_details();
             }
+            Ok(GitPayload::History(mut snapshot)) => {
+                self.loading_history = false;
+                // History jobs skip the status scan; the current working tree
+                // stays authoritative.
+                if let Some(current) = &self.snapshot {
+                    snapshot.working.clone_from(&current.working);
+                }
+                self.apply_snapshot(snapshot);
+                self.refresh_selection_details();
+            }
+            Ok(GitPayload::WorkingStatus(working)) => self.apply_working_status(working),
             Ok(GitPayload::Cloned(path)) => {
                 self.toast = Some("Repository cloned".to_owned());
                 self.open_repository(path);
             }
             Ok(GitPayload::Detail(detail)) => {
+                let detail = Arc::new(detail);
+                self.cache_detail(&detail);
                 if let Overlay::EditCommitMessage(id) = &self.overlay
                     && *id == detail.id
                     && self.edit_summary.is_empty()
@@ -919,8 +960,23 @@ impl AppState {
                     self.edit_summary.insert(&detail.subject);
                     self.edit_body.insert(&detail.body);
                 }
-                if self.selected_commit.as_deref() == Some(detail.id.as_str()) {
+                if self.selected_commits.len() <= 1
+                    && self.selected_commit.as_deref() == Some(detail.id.as_str())
+                {
                     self.detail = Some(detail);
+                }
+            }
+            Ok(GitPayload::RangeDetail(range)) => {
+                let range = Arc::new(range);
+                self.range_cache.insert(
+                    (range.oldest.clone(), range.newest.clone()),
+                    Arc::clone(&range),
+                );
+                if self
+                    .selection_endpoints()
+                    .is_some_and(|(oldest, newest)| oldest == range.oldest && newest == range.newest)
+                {
+                    self.range_detail = Some(range);
                 }
             }
             Ok(GitPayload::Diff(diff)) => {
@@ -972,9 +1028,9 @@ impl AppState {
                             limit: self.requested_limit,
                         });
                     }
-                    self.selected_commit = Some(id.clone());
+                    self.select_only(Some(id.clone()));
                     self.main_view = MainView::Graph;
-                    self.submit(GitJobKind::LoadDetail { id });
+                    self.request_detail(id);
                 } else {
                     if let Some(message) = message
                         && self.settings.notify_operation_success
@@ -1015,33 +1071,88 @@ impl AppState {
         }
         self.remember_repository(&snapshot.path, &snapshot.name);
         self.requested_limit = snapshot.loaded_limit.max(self.requested_limit);
-        let selection_exists = self
-            .selected_commit
-            .as_ref()
-            .is_some_and(|selected| snapshot.commits.iter().any(|commit| &commit.id == selected));
-        if !selection_exists {
-            self.selected_commit = snapshot
+        // Drop selected ids that vanished from history in one pass, keeping
+        // the lead on the topmost surviving row.
+        if !self.selected_commits.is_empty() {
+            let mut retained = HashSet::with_capacity(self.selected_commits.len());
+            let mut topmost = None;
+            for commit in &snapshot.commits {
+                if self.selected_commits.contains(&commit.id) {
+                    if topmost.is_none() {
+                        topmost = Some(commit.id.clone());
+                    }
+                    retained.insert(commit.id.clone());
+                    if retained.len() == self.selected_commits.len() {
+                        break;
+                    }
+                }
+            }
+            self.selected_commits = retained;
+            if self
+                .selected_commit
+                .as_ref()
+                .is_some_and(|lead| !self.selected_commits.contains(lead))
+            {
+                self.selected_commit = topmost;
+            }
+            if self
+                .selection_anchor
+                .as_ref()
+                .is_some_and(|anchor| !self.selected_commits.contains(anchor))
+            {
+                self.selection_anchor.clone_from(&self.selected_commit);
+            }
+        }
+        if self.selected_commits.is_empty() {
+            let fallback = snapshot
                 .head_id
                 .clone()
                 .or_else(|| snapshot.commits.first().map(|commit| commit.id.clone()));
+            self.select_only(fallback);
         }
-        self.retarget_working_diff(&snapshot);
-        self.graph = GraphLayout::build(&snapshot.commits);
+        self.retarget_working_diff(&snapshot.working);
+        // An identical history (ids, refs, lanes inputs) keeps the existing
+        // layout; watcher refreshes frequently change only the working tree.
+        let commits_unchanged = self
+            .snapshot
+            .as_ref()
+            .is_some_and(|old| old.commits == snapshot.commits);
+        if !commits_unchanged {
+            self.graph = GraphLayout::build(&snapshot.commits);
+        }
         self.snapshot = Some(snapshot);
     }
 
-    /// Keeps an open working-file diff aligned with the scope reported by a fresh snapshot.
-    fn retarget_working_diff(&mut self, snapshot: &RepoSnapshot) {
+    /// Applies a watcher-detected working-tree change without touching the
+    /// graph, detail panel, or selection.
+    fn apply_working_status(&mut self, working: WorkingTree) {
+        self.retarget_working_diff(&working);
+        let Some(snapshot) = self.snapshot.as_mut() else {
+            return;
+        };
+        if snapshot.working == working {
+            return;
+        }
+        snapshot.working = working;
+        // The file content behind an open working diff likely changed on disk.
+        if let Some(request) = self.selected_file.clone()
+            && matches!(request.scope, DiffScope::Staged | DiffScope::Unstaged)
+        {
+            self.submit(GitJobKind::LoadDiff { request });
+        }
+    }
+
+    /// Keeps an open working-file diff aligned with a fresh working tree.
+    fn retarget_working_diff(&mut self, working: &WorkingTree) {
         let Some(request) = self.selected_file.as_mut() else {
             return;
         };
         let (was_staged, was_unstaged) = match request.scope {
             DiffScope::Staged => (true, false),
             DiffScope::Unstaged => (false, true),
-            DiffScope::Commit(_) => return,
+            DiffScope::Commit(_) | DiffScope::CommitRange { .. } => return,
         };
-        let file = snapshot
-            .working
+        let file = working
             .files
             .iter()
             .find(|file| file.path == request.path);
@@ -1069,18 +1180,217 @@ impl AppState {
         }
     }
 
+    /// Selects a graph row honoring the live keyboard modifiers: shift extends
+    /// from the anchor across every row in between, the primary modifier
+    /// (Cmd/Ctrl) toggles individual commits, and a plain click replaces the
+    /// selection — matching `GitKraken`'s multi-select.
+    fn select_commit(&mut self, id: String) {
+        if self.modifier_shift {
+            self.extend_selection_to(&id);
+            self.selected_commit = Some(id);
+        } else if self.modifier_primary {
+            self.toggle_selection(id);
+        } else {
+            self.select_only(Some(id));
+        }
+        self.main_view = MainView::Graph;
+        self.selected_file = None;
+        self.diff = None;
+        self.refresh_selection_details();
+    }
+
+    /// Replaces the whole selection with zero or one commit.
+    fn select_only(&mut self, id: Option<String>) {
+        self.selected_commits.clear();
+        if let Some(id) = &id {
+            self.selected_commits.insert(id.clone());
+        }
+        self.selection_anchor.clone_from(&id);
+        self.selected_commit = id;
+        self.range_detail = None;
+    }
+
+    /// Selects every row between the anchor and `id`, inclusive.
+    fn extend_selection_to(&mut self, id: &str) {
+        let anchor = self
+            .selection_anchor
+            .clone()
+            .or_else(|| self.selected_commit.clone())
+            .unwrap_or_else(|| id.to_owned());
+        let rows = self.snapshot.as_ref().and_then(|snapshot| {
+            let anchor_row = snapshot
+                .commits
+                .iter()
+                .position(|commit| commit.id == anchor)?;
+            let target_row = snapshot.commits.iter().position(|commit| commit.id == id)?;
+            Some((anchor_row.min(target_row), anchor_row.max(target_row)))
+        });
+        let Some((first, last)) = rows else {
+            self.select_only(Some(id.to_owned()));
+            return;
+        };
+        self.selected_commits.clear();
+        if let Some(snapshot) = &self.snapshot {
+            for commit in &snapshot.commits[first..=last] {
+                self.selected_commits.insert(commit.id.clone());
+            }
+        }
+        self.selection_anchor = Some(anchor);
+        self.range_detail = None;
+    }
+
+    /// Adds or removes one commit from the selection; the selection never
+    /// empties, and a removed lead passes to the topmost remaining row.
+    fn toggle_selection(&mut self, id: String) {
+        if self.selected_commits.contains(&id) {
+            if self.selected_commits.len() <= 1 {
+                return;
+            }
+            self.selected_commits.remove(&id);
+            if self.selection_anchor.as_deref() == Some(id.as_str()) {
+                self.selection_anchor = None;
+            }
+            if self.selected_commit.as_deref() == Some(id.as_str()) {
+                let topmost = self.snapshot.as_ref().and_then(|snapshot| {
+                    snapshot
+                        .commits
+                        .iter()
+                        .find(|commit| self.selected_commits.contains(&commit.id))
+                        .map(|commit| commit.id.clone())
+                });
+                self.selected_commit = topmost.or_else(|| {
+                    self.selected_commits.iter().next().cloned()
+                });
+            }
+        } else {
+            self.selected_commits.insert(id.clone());
+            self.selected_commit = Some(id.clone());
+            self.selection_anchor = Some(id);
+        }
+        self.range_detail = None;
+    }
+
+    /// Whether a graph row participates in the current selection.
+    pub(crate) fn is_commit_selected(&self, id: &str) -> bool {
+        self.selected_commits.contains(id) || self.selected_commit.as_deref() == Some(id)
+    }
+
+    /// Whether the commit is unpushed, from the loaded graph summary.
+    pub(crate) fn commit_is_local(&self, id: &str) -> bool {
+        self.snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.commits.iter().find(|commit| commit.id == id))
+            .is_some_and(|commit| commit.is_local)
+    }
+
+    /// Oldest/newest ids of the multi-selection in graph row order (row 0 is
+    /// newest); `None` while fewer than two commits are selected.
+    pub(crate) fn selection_endpoints(&self) -> Option<(String, String)> {
+        if self.selected_commits.len() < 2 {
+            return None;
+        }
+        let snapshot = self.snapshot.as_ref()?;
+        let mut newest = None;
+        let mut oldest = None;
+        for commit in &snapshot.commits {
+            if self.selected_commits.contains(&commit.id) {
+                if newest.is_none() {
+                    newest = Some(commit.id.clone());
+                }
+                oldest = Some(commit.id.clone());
+            }
+        }
+        Some((oldest?, newest?))
+    }
+
+    /// Loads the panel data matching the current selection, from cache when
+    /// the commit or range was already fetched.
+    fn refresh_selection_details(&mut self) {
+        if self.selected_commits.len() > 1 {
+            self.detail = None;
+            self.request_range_detail();
+        } else if let Some(id) = self.selected_commit.clone() {
+            self.range_detail = None;
+            self.request_detail(id);
+        }
+    }
+
+    /// Ensures `detail` holds `id`, hitting the immutable per-commit cache
+    /// before submitting a `LoadDetail` job; in-flight requests are not repeated.
+    fn request_detail(&mut self, id: String) {
+        let want_tree = self.view_all_files;
+        if self
+            .detail
+            .as_ref()
+            .is_some_and(|detail| detail.id == id && (!want_tree || detail.all_files.is_some()))
+        {
+            return;
+        }
+        if let Some(cached) = self.detail_cache.get(&id)
+            && (!want_tree || cached.all_files.is_some())
+        {
+            self.detail = Some(Arc::clone(cached));
+            return;
+        }
+        self.detail = None;
+        if self
+            .pending_detail
+            .as_ref()
+            .is_some_and(|(pending, tree)| *pending == id && (*tree || !want_tree))
+        {
+            return;
+        }
+        self.pending_detail = Some((id.clone(), want_tree));
+        self.submit(GitJobKind::LoadDetail {
+            id,
+            include_tree: want_tree,
+        });
+    }
+
+    /// Ensures `range_detail` matches the multi-selection endpoints; ranges
+    /// are immutable, so cached ones never re-fetch.
+    fn request_range_detail(&mut self) {
+        let Some((oldest, newest)) = self.selection_endpoints() else {
+            self.range_detail = None;
+            return;
+        };
+        if self
+            .range_detail
+            .as_ref()
+            .is_some_and(|range| range.oldest == oldest && range.newest == newest)
+        {
+            return;
+        }
+        if let Some(cached) = self.range_cache.get(&(oldest.clone(), newest.clone())) {
+            self.range_detail = Some(Arc::clone(cached));
+            return;
+        }
+        self.range_detail = None;
+        self.submit(GitJobKind::LoadRangeDetail { oldest, newest });
+    }
+
+    /// Bounded FIFO insert into the per-repository commit-detail cache.
+    fn cache_detail(&mut self, detail: &Arc<CommitDetail>) {
+        const DETAIL_CACHE_LIMIT: usize = 512;
+        if self
+            .detail_cache
+            .insert(detail.id.clone(), Arc::clone(detail))
+            .is_none()
+        {
+            self.detail_cache_order.push_back(detail.id.clone());
+            if self.detail_cache_order.len() > DETAIL_CACHE_LIMIT
+                && let Some(evicted) = self.detail_cache_order.pop_front()
+            {
+                self.detail_cache.remove(&evicted);
+            }
+        }
+    }
+
     /// Dispatches a semantic action shared by pointer input and core-loop automation.
     pub(crate) fn dispatch(&mut self, action: UiAction) {
         self.toast = None;
         match action {
-            UiAction::SelectCommit(id) => {
-                self.selected_commit = Some(id.clone());
-                self.detail = None;
-                self.main_view = MainView::Graph;
-                self.selected_file = None;
-                self.diff = None;
-                self.submit(GitJobKind::LoadDetail { id });
-            }
+            UiAction::SelectCommit(id) => self.select_commit(id),
             UiAction::JumpToCommit(id) => {
                 if let Some(index) = self
                     .snapshot
@@ -1114,35 +1424,20 @@ impl AppState {
                 } else {
                     self.toast = Some("Commit is not in the loaded graph".to_owned());
                 }
-                self.selected_commit = Some(id.clone());
-                self.detail = None;
+                self.select_only(Some(id.clone()));
                 self.main_view = MainView::Graph;
                 self.selected_file = None;
                 self.diff = None;
-                self.submit(GitJobKind::LoadDetail { id });
+                self.request_detail(id);
             }
             UiAction::SelectWip => {
-                self.selected_commit = None;
+                self.select_only(None);
                 self.detail = None;
                 self.main_view = MainView::Wip;
                 self.selected_file = None;
                 self.diff = None;
             }
-            UiAction::SelectFile {
-                path,
-                staged,
-                commit,
-            } => {
-                let scope = commit.map_or_else(
-                    || {
-                        if staged {
-                            DiffScope::Staged
-                        } else {
-                            DiffScope::Unstaged
-                        }
-                    },
-                    DiffScope::Commit,
-                );
+            UiAction::SelectFile { path, scope } => {
                 let request = DiffRequest { path, scope };
                 self.selected_file = Some(request.clone());
                 self.diff = None;
@@ -1473,7 +1768,10 @@ impl AppState {
                         self.edit_summary.insert(&detail.subject);
                         self.edit_body.insert(&detail.body);
                     } else {
-                        self.submit(GitJobKind::LoadDetail { id: id.clone() });
+                        self.submit(GitJobKind::LoadDetail {
+                            id: id.clone(),
+                            include_tree: false,
+                        });
                     }
                     self.show_popup(
                         Overlay::EditCommitMessage(id),
@@ -1610,16 +1908,12 @@ impl AppState {
             UiAction::FileContextHistory => {
                 if let Overlay::FileContext { path, scope } = self.overlay.clone() {
                     self.close_overlay();
-                    let (staged, commit) = match scope {
-                        FileContextScope::Staged => (true, None),
-                        FileContextScope::Unstaged => (false, None),
-                        FileContextScope::Committed(id) => (false, Some(id)),
+                    let scope = match scope {
+                        FileContextScope::Staged => DiffScope::Staged,
+                        FileContextScope::Unstaged => DiffScope::Unstaged,
+                        FileContextScope::Committed(id) => DiffScope::Commit(id),
                     };
-                    self.dispatch(UiAction::SelectFile {
-                        path,
-                        staged,
-                        commit,
-                    });
+                    self.dispatch(UiAction::SelectFile { path, scope });
                     self.file_history = true;
                 }
             }
@@ -1953,10 +2247,18 @@ impl AppState {
             UiAction::TogglePreference(key) => self.toggle_preference(&key),
             UiAction::AdjustPreference { key, delta } => self.adjust_preference(&key, delta),
             UiAction::TogglePathTree => self.path_tree = !self.path_tree,
-            UiAction::ToggleViewAllFiles => self.view_all_files = !self.view_all_files,
+            UiAction::ToggleViewAllFiles => {
+                self.view_all_files = !self.view_all_files;
+                // The current detail may lack the full tree listing.
+                if self.selected_commits.len() <= 1
+                    && let Some(id) = self.selected_commit.clone()
+                {
+                    self.request_detail(id);
+                }
+            }
             UiAction::CloseDetail => {
                 self.detail = None;
-                self.selected_commit = None;
+                self.select_only(None);
             }
             UiAction::CloseDiff => {
                 self.main_view = if self.selected_commit.is_some() {
@@ -2229,16 +2531,17 @@ impl AppState {
                 UiAction::OpenStashContext(index) => Some(UiAction::OpenStashContext(*index)),
                 UiAction::OpenTagContext(tag) => Some(UiAction::OpenTagContext(tag.clone())),
                 UiAction::SelectCommit(id) => Some(UiAction::OpenCommitContext(id.clone())),
-                UiAction::SelectFile {
-                    path,
-                    staged,
-                    commit,
-                } => Some(UiAction::OpenFileContext {
+                UiAction::SelectFile { path, scope } => Some(UiAction::OpenFileContext {
                     path: path.clone(),
-                    scope: match commit {
-                        Some(id) => FileContextScope::Committed(id.clone()),
-                        None if *staged => FileContextScope::Staged,
-                        None => FileContextScope::Unstaged,
+                    scope: match scope {
+                        DiffScope::Commit(id) => FileContextScope::Committed(id.clone()),
+                        // Range rows act on the newest commit, whose tree
+                        // provides the displayed content.
+                        DiffScope::CommitRange { newest, .. } => {
+                            FileContextScope::Committed(newest.clone())
+                        }
+                        DiffScope::Staged => FileContextScope::Staged,
+                        DiffScope::Unstaged => FileContextScope::Unstaged,
                     },
                 }),
                 _ => None,
@@ -3132,7 +3435,7 @@ impl AppState {
         request.scope = match request.scope {
             DiffScope::Staged => DiffScope::Unstaged,
             DiffScope::Unstaged => DiffScope::Staged,
-            DiffScope::Commit(_) => return,
+            DiffScope::Commit(_) | DiffScope::CommitRange { .. } => return,
         };
         self.selected_file = Some(request.clone());
         self.diff = None;
@@ -3789,12 +4092,18 @@ impl AppState {
         match &self.overlay {
             Overlay::None => None,
             Overlay::Branches => Some(Rect::new(128.0, 48.0, 320.0, 520.0_f32.min(height - 64.0))),
-            Overlay::Lfs => Some(Rect::new(
-                layout.toolbar.right() - 280.0,
-                layout.toolbar.bottom() + 4.0,
-                240.0,
-                168.0,
-            )),
+            Overlay::Lfs => {
+                let start = crate::views::shell::action_cluster_start(
+                    self.tabs.len(),
+                    layout.toolbar.width,
+                );
+                Some(Rect::new(
+                    (start + 238.0).min(layout.toolbar.right() - 252.0),
+                    layout.toolbar.bottom() + 4.0,
+                    240.0,
+                    168.0,
+                ))
+            }
             Overlay::Actions => Some(Rect::new(
                 layout.toolbar.right() - 240.0,
                 layout.toolbar.bottom() + 4.0,
@@ -3802,7 +4111,8 @@ impl AppState {
                 164.0,
             )),
             Overlay::PullOptions => Some(Rect::new(
-                layout.toolbar.x + 520.0_f32.min(layout.toolbar.width * 0.42) + 104.0,
+                crate::views::shell::action_cluster_start(self.tabs.len(), layout.toolbar.width)
+                    + 24.0,
                 layout.toolbar.bottom() + 4.0,
                 310.0,
                 190.0,
@@ -4188,6 +4498,28 @@ mod tests {
         (directory, working)
     }
 
+    /// Commits one file on HEAD of an existing test repository.
+    fn commit_file(directory: &Path, path: &str, content: &str, message: &str) -> String {
+        let repository = Repository::open(directory).expect("open test repository");
+        std::fs::write(directory.join(path), content).expect("write committed file");
+        let mut index = repository.index().expect("open index");
+        index.add_path(Path::new(path)).expect("add committed path");
+        index.write().expect("persist index");
+        let tree_id = index.write_tree().expect("write tree");
+        let tree = repository.find_tree(tree_id).expect("load tree");
+        let signature =
+            Signature::now("Kraken UI Test", "ui@kraken.local").expect("create signature");
+        let parent = repository
+            .head()
+            .ok()
+            .and_then(|head| head.peel_to_commit().ok());
+        let parents = parent.iter().collect::<Vec<_>>();
+        repository
+            .commit(Some("HEAD"), &signature, &signature, message, &tree, &parents)
+            .expect("create commit")
+            .to_string()
+    }
+
     fn wait_until(state: &mut AppState, condition: impl Fn(&AppState) -> bool) {
         let deadline = Instant::now() + Duration::from_secs(3);
         while !condition(state) {
@@ -4248,6 +4580,120 @@ mod tests {
     }
 
     #[test]
+    fn modifier_clicks_assemble_multi_selection_and_combined_range() {
+        let (repository_directory, _) = repository_with_working_file();
+        commit_file(repository_directory.path(), "b.txt", "bee\n", "feat: added b");
+        commit_file(repository_directory.path(), "c.txt", "sea\n", "feat: added c");
+        let settings_directory = tempfile::tempdir().expect("temporary settings directory");
+        let store = SettingsStore::at(settings_directory.path().join("settings.toml"));
+        let mut state = AppState::base(1_200, 800, store, Settings::default());
+        state.open_repository(repository_directory.path().to_path_buf());
+        wait_until(&mut state, |state| {
+            state.busy_jobs == 0
+                && state
+                    .snapshot
+                    .as_ref()
+                    .is_some_and(|snapshot| snapshot.commits.len() == 3)
+        });
+        let ids = state
+            .snapshot
+            .as_ref()
+            .expect("loaded snapshot")
+            .commits
+            .iter()
+            .map(|commit| commit.id.clone())
+            .collect::<Vec<_>>();
+        // The newest commit was auto-selected with the snapshot.
+        assert_eq!(state.selected_commit.as_deref(), Some(ids[0].as_str()));
+
+        // Primary-click the root commit: two selected, endpoints span the graph.
+        state.modifier_primary = true;
+        state.dispatch(UiAction::SelectCommit(ids[2].clone()));
+        state.modifier_primary = false;
+        assert_eq!(state.selected_commits.len(), 2);
+        assert_eq!(
+            state.selection_endpoints(),
+            Some((ids[2].clone(), ids[0].clone()))
+        );
+        wait_until(&mut state, |state| {
+            state.busy_jobs == 0 && state.range_detail.is_some()
+        });
+        let range = state.range_detail.clone().expect("combined range detail");
+        assert_eq!(range.oldest, ids[2]);
+        assert_eq!(range.newest, ids[0]);
+        // The root commit's own changes participate in the union.
+        let paths = range
+            .files
+            .iter()
+            .map(|file| file.path.display().to_string())
+            .collect::<Vec<_>>();
+        assert!(paths.contains(&"base.txt".to_owned()));
+        assert!(paths.contains(&"c.txt".to_owned()));
+
+        // Shift-click the newest row keeps the anchor and selects everything
+        // in between; primary-click removal shrinks the selection again.
+        state.modifier_shift = true;
+        state.dispatch(UiAction::SelectCommit(ids[0].clone()));
+        state.modifier_shift = false;
+        assert_eq!(state.selected_commits.len(), 3);
+        state.modifier_primary = true;
+        state.dispatch(UiAction::SelectCommit(ids[1].clone()));
+        state.modifier_primary = false;
+        assert_eq!(state.selected_commits.len(), 2);
+
+        // A plain click collapses back to a single selection.
+        state.dispatch(UiAction::SelectCommit(ids[1].clone()));
+        assert_eq!(state.selected_commits.len(), 1);
+        assert_eq!(state.selected_commit.as_deref(), Some(ids[1].as_str()));
+        assert!(state.range_detail.is_none());
+    }
+
+    #[test]
+    fn reselecting_a_commit_reuses_the_cached_detail_without_a_job() {
+        let (repository_directory, _) = repository_with_working_file();
+        commit_file(repository_directory.path(), "b.txt", "bee\n", "feat: added b");
+        let settings_directory = tempfile::tempdir().expect("temporary settings directory");
+        let store = SettingsStore::at(settings_directory.path().join("settings.toml"));
+        let mut state = AppState::base(1_200, 800, store, Settings::default());
+        state.open_repository(repository_directory.path().to_path_buf());
+        wait_until(&mut state, |state| {
+            state.busy_jobs == 0
+                && state
+                    .detail
+                    .as_ref()
+                    .zip(state.selected_commit.as_ref())
+                    .is_some_and(|(detail, selected)| &detail.id == selected)
+        });
+        let head = state.selected_commit.clone().expect("selected head");
+        let ids = state
+            .snapshot
+            .as_ref()
+            .expect("loaded snapshot")
+            .commits
+            .iter()
+            .map(|commit| commit.id.clone())
+            .collect::<Vec<_>>();
+        state.dispatch(UiAction::SelectCommit(ids[1].clone()));
+        wait_until(&mut state, |state| {
+            state.busy_jobs == 0
+                && state
+                    .detail
+                    .as_ref()
+                    .is_some_and(|detail| detail.id == ids[1])
+        });
+
+        // Both details are cached now; re-selecting resolves synchronously.
+        state.dispatch(UiAction::SelectCommit(head.clone()));
+        assert_eq!(state.busy_jobs, 0, "cache hit must not submit a job");
+        assert!(
+            state
+                .detail
+                .as_ref()
+                .is_some_and(|detail| detail.id == head)
+        );
+    }
+
+    #[test]
     fn external_worktree_edit_refreshes_wip_without_user_action() {
         let (repository_directory, _) = repository_with_working_file();
         let settings_directory = tempfile::tempdir().expect("temporary settings directory");
@@ -4293,8 +4739,7 @@ mod tests {
 
         state.dispatch(UiAction::SelectFile {
             path: working.clone(),
-            staged: false,
-            commit: None,
+            scope: DiffScope::Unstaged,
         });
         wait_until(&mut state, |state| {
             state.busy_jobs == 0 && state.diff.is_some()
@@ -4310,8 +4755,7 @@ mod tests {
 
         state.dispatch(UiAction::SelectFile {
             path: working.clone(),
-            staged: true,
-            commit: None,
+            scope: DiffScope::Staged,
         });
         wait_until(&mut state, |state| {
             state.busy_jobs == 0 && state.diff.is_some()
@@ -4385,8 +4829,7 @@ mod tests {
         });
         state.dispatch(UiAction::SelectFile {
             path: path.clone(),
-            staged: false,
-            commit: None,
+            scope: DiffScope::Unstaged,
         });
         wait_until(&mut state, |state| {
             state.busy_jobs == 0 && state.diff.is_some()
@@ -4413,8 +4856,7 @@ mod tests {
         });
         state.dispatch(UiAction::SelectFile {
             path: path.clone(),
-            staged: true,
-            commit: None,
+            scope: DiffScope::Staged,
         });
         wait_until(&mut state, |state| {
             state.busy_jobs == 0 && state.diff.is_some()

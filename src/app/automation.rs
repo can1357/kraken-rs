@@ -198,10 +198,19 @@ impl AutomationServer {
         Ok(json!({ "width": width, "height": height }))
     }
 
+    /// Mirrors winit's `ModifiersChanged` for synthetic pointer input; absent
+    /// params mean an unmodified click.
+    fn apply_click_modifiers(&mut self, params: &Value) {
+        self.state.modifier_shift = optional_bool(params, "shift").unwrap_or(false);
+        self.state.modifier_primary = optional_bool(params, "command").unwrap_or(false)
+            || optional_bool(params, "control").unwrap_or(false);
+    }
+
     fn dispatch_mouse(&mut self, params: &Value) -> Result<Value> {
         let event_type = required_string(params, "type")?;
         let x = optional_f32(params, "x").unwrap_or(self.state.mouse[0]);
         let y = optional_f32(params, "y").unwrap_or(self.state.mouse[1]);
+        self.apply_click_modifiers(params);
         self.state.mouse = [x, y];
         // Rebuild the scene with the pointer already at the event position so
         // position-derived hit payloads match, exactly like the winit path
@@ -410,6 +419,7 @@ impl AutomationServer {
             let target = hit_at(&self.state, point);
             (point, target)
         };
+        self.apply_click_modifiers(params);
         self.state.mouse = point;
         self.state.click();
         // A synthetic click is press + release; releasing settles any deferred
@@ -444,6 +454,11 @@ impl AutomationServer {
             "focus": format!("{:?}", self.state.focus),
             "preferencesOpen": self.state.preferences_open,
             "selectedCommit": self.state.selected_commit,
+            "selectedCommits": self.state.selected_commits.len(),
+            "selectionRange": self.state.selection_endpoints().map(|(oldest, newest)| json!({
+                "oldest": oldest,
+                "newest": newest,
+            })),
             "selectedFile": self.state.selected_file.as_ref().map(|request| request.path.display().to_string()),
             "busyJobs": self.state.busy_jobs,
             "loadingHistory": self.state.loading_history,

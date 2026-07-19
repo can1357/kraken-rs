@@ -21,6 +21,10 @@ use crate::{
 pub(super) fn build(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
     scene.rect(0, rect, scene.viewport(), theme.panel);
     divider(scene, Rect::new(rect.x, rect.y, 1.0, rect.height), theme);
+    if state.selected_commits.len() > 1 {
+        build_multi(scene, state, theme, rect);
+        return;
+    }
 
     let Some(detail) = &state.detail else {
         let header = Rect::new(rect.x, rect.y, rect.width, 39.0);
