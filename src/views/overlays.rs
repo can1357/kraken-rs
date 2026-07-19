@@ -448,8 +448,9 @@ fn build_branches(scene: &mut Scene, state: &AppState, theme: &Theme) {
 }
 
 fn build_lfs(scene: &mut Scene, state: &AppState, theme: &Theme, layout: &Layout) {
+    let start = crate::views::shell::action_cluster_start(state.tabs.len(), layout.toolbar.width);
     let rect = Rect::new(
-        layout.toolbar.right() - 280.0,
+        (start + 238.0).min(layout.toolbar.right() - 252.0),
         layout.toolbar.bottom() + 4.0,
         240.0,
         168.0,
@@ -501,7 +502,7 @@ fn build_lfs(scene: &mut Scene, state: &AppState, theme: &Theme, layout: &Layout
 
 fn build_pull_options(scene: &mut Scene, state: &AppState, theme: &Theme, layout: &Layout) {
     let rect = Rect::new(
-        layout.toolbar.x + 520.0_f32.min(layout.toolbar.width * 0.42) + 104.0,
+        crate::views::shell::action_cluster_start(state.tabs.len(), layout.toolbar.width) + 24.0,
         layout.toolbar.bottom() + 4.0,
         310.0,
         190.0,

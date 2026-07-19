@@ -222,71 +222,29 @@ fn build_tabs(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
         );
         scene.hit(target, action, CursorHint::Pointer, Some(tooltip));
     }
-    let profile = Rect::new(right - 180.0, 10.0, 32.0, 24.0);
-    scene.rounded_rect(2, profile, rect, theme.green, theme.green, RADIUS_SM, 0.0);
-    scene.text(
-        "PRO",
-        [profile.x + 6.0, profile.y + 4.0],
-        profile,
-        theme.on_accent,
-        10.0,
-        14.0,
-        FontFace::Monospace,
-    );
 }
 
 fn build_toolbar(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
-    let repository = state
-        .snapshot
-        .as_ref()
-        .map_or("repository", |snapshot| snapshot.name.as_str());
-    let branch = state
-        .snapshot
-        .as_ref()
-        .map_or("branch", |snapshot| snapshot.head.as_str());
     let tabs_end = 90.0 + 180.0 * state.tabs.len().to_f32().unwrap_or(0.0) + 40.0;
-    let mut cursor = tabs_end + 12.0;
-    // The repo/branch wells and PRs button yield to the action cluster below
-    // 1150px; the sidebar and Branch action cover the same flows there.
-    if rect.width >= 1150.0 {
-        dropdown(
-            scene,
-            Rect::new(cursor, 7.0, 150.0, 30.0),
-            "REPO",
-            repository,
-            None,
-            state,
-            theme,
-        );
-        dropdown(
-            scene,
-            Rect::new(cursor + 162.0, 7.0, 160.0, 30.0),
-            "BRANCH",
-            branch,
-            Some(UiAction::ToggleBranchMenu),
-            state,
-            theme,
-        );
-        let pr = Rect::new(cursor + 334.0, 7.0, 60.0, 30.0);
-        let pr_hovered = pr.contains(state.hover());
-        if pr_hovered {
-            scene.rounded_rect(1, pr, rect, theme.row_hover, theme.row_hover, RADIUS_MD, 0.0);
-        }
-        scene.text(
-            format!("{}  PRs", icons::GIT_PULL_REQUEST),
-            [pr.x + 11.0, pr.y + 7.0],
-            pr,
-            if pr_hovered {
-                theme.text
-            } else {
-                theme.text_muted
-            },
-            11.0,
-            16.0,
-            FontFace::Sans,
-        );
-        cursor += 406.0;
+    let cursor = tabs_end + 12.0;
+    let pr = Rect::new(cursor, 7.0, 60.0, 30.0);
+    let pr_hovered = pr.contains(state.hover());
+    if pr_hovered {
+        scene.rounded_rect(1, pr, rect, theme.row_hover, theme.row_hover, RADIUS_MD, 0.0);
     }
+    scene.text(
+        format!("{}  PRs", icons::GIT_PULL_REQUEST),
+        [pr.x + 11.0, pr.y + 7.0],
+        pr,
+        if pr_hovered {
+            theme.text
+        } else {
+            theme.text_muted
+        },
+        11.0,
+        16.0,
+        FontFace::Sans,
+    );
 
     let action_width = 34.0;
     let busy = |op| state.op_in_flight(op);
@@ -340,6 +298,7 @@ fn build_toolbar(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect)
             !busy(ToolbarOp::Pop),
             busy(ToolbarOp::Pop),
         ),
+        (icons::CLOUD, "LFS", UiAction::ToggleLfsMenu, true, false),
         (
             icons::TERMINAL,
             "Terminal",
@@ -348,11 +307,7 @@ fn build_toolbar(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect)
             false,
         ),
     ];
-    let actions_width = action_width * 8.0 + 14.0;
-    let action_start = (cursor + 12.0)
-        .max(rect.width * 0.42)
-        .min(rect.right() - 300.0 - actions_width)
-        .max(cursor + 12.0);
+    let action_start = action_cluster_start(state.tabs.len(), rect.width);
     for (index, (icon, label, action, enabled, busy)) in actions.into_iter().enumerate() {
         let x = action_start + index.to_f32().unwrap_or(0.0) * action_width;
         toolbar_action(
@@ -387,18 +342,7 @@ fn build_toolbar(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect)
     let right = rect.right();
     toolbar_action(
         scene,
-        Rect::new(right - 330.0, 7.0, 46.0, 30.0),
-        format!("LFS{}", icons::CHEVRON_DOWN),
-        "LFS commands",
-        UiAction::ToggleLfsMenu,
-        true,
-        false,
-        state,
-        theme,
-    );
-    toolbar_action(
-        scene,
-        Rect::new(right - 280.0, 7.0, 32.0, 30.0),
+        Rect::new(right - 222.0, 7.0, 32.0, 30.0),
         icons::MENU,
         "Actions",
         UiAction::ToggleActionsMenu,
@@ -409,7 +353,7 @@ fn build_toolbar(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect)
     );
     toolbar_action(
         scene,
-        Rect::new(right - 244.0, 7.0, 32.0, 30.0),
+        Rect::new(right - 186.0, 7.0, 32.0, 30.0),
         icons::SEARCH,
         "Search",
         UiAction::ToggleSearch,
@@ -1761,35 +1705,65 @@ mod tests {
 fn build_status(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect) {
     scene.rect(0, rect, scene.viewport(), theme.window);
     divider(scene, Rect::new(rect.x, rect.y, rect.width, 1.0), theme);
-    let left = if state.busy_jobs > 0 {
-        format!(
-            "{}  {} Git operation(s) running",
-            icons::LOADING,
-            state.busy_jobs
-        )
-    } else if let Some(snapshot) = &state.snapshot {
-        format!(
-            "{} {}  •  {} commits loaded",
-            icons::BRANCH,
-            snapshot.head,
-            snapshot.commits.len()
-        )
+    if state.busy_jobs > 0 {
+        scene.text(
+            format!(
+                "{}  {} Git operation(s) running",
+                icons::LOADING,
+                state.busy_jobs
+            ),
+            [rect.x + 12.0, rect.y + 4.0],
+            Rect::new(rect.x + 8.0, rect.y, rect.width * 0.6, rect.height),
+            theme.accent,
+            11.0,
+            15.0,
+            FontFace::Sans,
+        );
     } else {
-        format!("{} Opening repository", icons::LOADING)
-    };
-    scene.text(
-        left,
-        [rect.x + 12.0, rect.y + 4.0],
-        Rect::new(rect.x + 8.0, rect.y, rect.width * 0.6, rect.height),
-        if state.busy_jobs > 0 {
-            theme.accent
-        } else {
-            theme.text_muted
-        },
-        11.0,
-        15.0,
-        FontFace::Sans,
-    );
+        // The branch indicator doubles as the branch-menu trigger.
+        let head = state
+            .snapshot
+            .as_ref()
+            .map_or("branch", |snapshot| snapshot.head.as_str());
+        let head_width = head.chars().count().to_f32().unwrap_or(0.0) * 6.6;
+        let zone = Rect::new(rect.x + 6.0, rect.y + 1.0, head_width + 30.0, rect.height - 2.0);
+        let zone_hovered = zone.contains(state.hover());
+        if zone_hovered {
+            scene.rounded_rect(1, zone, rect, theme.row_hover, theme.row_hover, RADIUS_SM, 0.0);
+        }
+        scene.text(
+            format!("{} {head}", icons::BRANCH),
+            [rect.x + 12.0, rect.y + 4.0],
+            zone,
+            if zone_hovered {
+                theme.text
+            } else {
+                theme.text_muted
+            },
+            11.0,
+            15.0,
+            FontFace::Sans,
+        );
+        scene.hit(
+            zone,
+            UiAction::ToggleBranchMenu,
+            CursorHint::Pointer,
+            Some("Switch branch"),
+        );
+        let suffix = state.snapshot.as_ref().map_or_else(
+            || "  •  Opening repository".to_owned(),
+            |snapshot| format!("  •  {} commits loaded", snapshot.commits.len()),
+        );
+        scene.text(
+            suffix,
+            [zone.right() + 2.0, rect.y + 4.0],
+            Rect::new(zone.right() + 2.0, rect.y, rect.width * 0.5, rect.height),
+            theme.text_dim,
+            11.0,
+            15.0,
+            FontFace::Sans,
+        );
+    }
     scene.text(
         format!(
             "{}   {}   {}      Support      0.1.0",
