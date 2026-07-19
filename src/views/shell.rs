@@ -420,58 +420,16 @@ fn build_toolbar(scene: &mut Scene, state: &AppState, theme: &Theme, rect: Rect)
     );
 }
 
-#[allow(clippy::too_many_arguments)]
-fn dropdown(
-    scene: &mut Scene,
-    rect: Rect,
-    caption: &str,
-    value: &str,
-    action: Option<UiAction>,
-    state: &AppState,
-    theme: &Theme,
-) {
-    let hovered = rect.contains(state.hover());
-    scene.rounded_rect(
-        1,
-        rect,
-        scene.viewport(),
-        theme.panel,
-        if hovered {
-            theme.border_hard
-        } else {
-            theme.border_strong
-        },
-        RADIUS_MD,
-        1.0,
-    );
-    // Single-line well: dim caption, value, chevron on one baseline.
-    let caption_width = caption.len().to_f32().unwrap_or(0.0) * 5.2 + 6.0;
-    scene.text(
-        caption,
-        [rect.x + 9.0, rect.y + 9.0],
-        rect,
-        theme.text_dim,
-        9.0,
-        12.0,
-        FontFace::Sans,
-    );
-    scene.text(
-        format!("{value}  {}", icons::CHEVRON_DOWN),
-        [rect.x + 9.0 + caption_width, rect.y + 7.0],
-        Rect::new(
-            rect.x + 9.0 + caption_width,
-            rect.y,
-            (rect.width - caption_width - 18.0).max(0.0),
-            rect.height,
-        ),
-        theme.text,
-        12.0,
-        16.0,
-        FontFace::Sans,
-    );
-    if let Some(action) = action {
-        scene.hit(rect, action, CursorHint::Pointer, None);
-    }
+/// Horizontal origin of the unified strip's action cluster, shared by the
+/// toolbar painter and the popup anchors that must track it.
+pub(crate) fn action_cluster_start(tab_count: usize, width: f32) -> f32 {
+    let tabs_end = 90.0 + 180.0 * tab_count.to_f32().unwrap_or(0.0) + 40.0;
+    let cursor = tabs_end + 12.0;
+    let actions_width = 34.0 * 9.0 + 14.0;
+    (cursor + 72.0)
+        .max(width * 0.42)
+        .min(width - 300.0 - actions_width)
+        .max(cursor + 72.0)
 }
 
 #[allow(clippy::too_many_arguments)]
