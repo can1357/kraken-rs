@@ -201,9 +201,23 @@ pub(crate) struct CommitDetail {
     pub(crate) authored_seconds: i64,
     pub(crate) parents: Vec<String>,
     pub(crate) files: Vec<FileChange>,
-    pub(crate) all_files: Vec<PathBuf>,
+    /// Every path in the commit tree, present only when the detail was
+    /// requested with the tree included ("View all files").
+    pub(crate) all_files: Option<Vec<PathBuf>>,
     pub(crate) conflicts: Vec<PathBuf>,
-    pub(crate) is_local: bool,
+}
+
+/// Combined changes across a multi-selected, inclusive commit range.
+///
+/// `files` is the tree diff between the oldest selected commit's first parent
+/// and the newest selected commit, matching GitKraken's multi-select panel.
+#[derive(Clone, Debug)]
+pub(crate) struct RangeDetail {
+    pub(crate) oldest: String,
+    pub(crate) newest: String,
+    pub(crate) oldest_short: String,
+    pub(crate) newest_short: String,
+    pub(crate) files: Vec<FileChange>,
 }
 
 /// Selects the tree/index/worktree pair used to create a file diff.

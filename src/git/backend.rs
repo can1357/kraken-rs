@@ -2787,9 +2787,12 @@ mod tests {
         assert!(!main_ref.is_tag);
         assert_eq!(snapshot.working.unstaged_count(), 1);
         let detail = backend
-            .commit_detail(&snapshot.commits[0].id)
+            .commit_detail(&snapshot.commits[0].id, true)
             .expect("load commit detail");
-        assert_eq!(detail.all_files, [PathBuf::from("tracked.txt")]);
+        assert_eq!(
+            detail.all_files.as_deref(),
+            Some([PathBuf::from("tracked.txt")].as_slice())
+        );
         assert_eq!(snapshot.worktrees.len(), 1);
         assert_eq!(snapshot.worktrees[0].changes, 1);
         assert_eq!(snapshot.wip_rows(), 2);
@@ -2870,7 +2873,7 @@ mod tests {
         assert_eq!(committed.commits.len(), 2);
         assert_eq!(
             backend
-                .commit_detail(&id)
+                .commit_detail(&id, false)
                 .expect("load created commit")
                 .body,
             "Verified staged index content."
@@ -2896,7 +2899,7 @@ mod tests {
         assert_eq!(after_amend.commits.len(), 2);
         assert_eq!(
             backend
-                .commit_detail(&amended)
+                .commit_detail(&amended, false)
                 .expect("load amended commit")
                 .subject,
             "fix(core): amended through backend"

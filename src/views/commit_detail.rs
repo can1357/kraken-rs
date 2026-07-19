@@ -648,14 +648,16 @@ fn draw_folder_row(
     );
 }
 
-/// Rows shown in the detail file section for the current view flags.
+/// Rows shown in the detail file section for the current view flags; the
+/// full-tree listing applies only when the detail has one loaded.
 fn collect_rows<'a>(
     state: &AppState,
     detail: &'a CommitDetail,
 ) -> Vec<(&'a Path, Option<&'a FileChange>)> {
-    if state.view_all_files {
-        detail
-            .all_files
+    if state.view_all_files
+        && let Some(all_files) = &detail.all_files
+    {
+        all_files
             .iter()
             .map(|path| {
                 let change = detail
@@ -667,11 +669,7 @@ fn collect_rows<'a>(
             })
             .collect::<Vec<_>>()
     } else {
-        detail
-            .files
-            .iter()
-            .map(|file| (file.path.as_path(), Some(file)))
-            .collect::<Vec<_>>()
+        changed_rows(&detail.files)
     }
 }
 
