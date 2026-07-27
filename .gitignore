@@ -3,6 +3,10 @@
 /target-bisect/
 **/*.rs.bk
 
+# Local-only cargo config: patches the slab git deps to ../slab-lang.
+# See .cargo/config.toml comment; fresh clones build from GitHub without it.
+/.cargo/config.toml
+
 # Icon sources for codicon_mapping.json (package.json + bun.lock are tracked)
 /node_modules/
 
@@ -12,6 +16,7 @@
 /artifacts/
 /qa/
 /.omp/qa/
+
 # Root-level scratch notes: patch.txt, timeline.txt, reps*.txt, sel*.txt.
 # Scoped to the root so test fixtures under src/ stay visible.
 /*.txt

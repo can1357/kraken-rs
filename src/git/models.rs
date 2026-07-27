@@ -225,7 +225,10 @@ pub(crate) struct RangeDetail {
 pub(crate) enum DiffScope {
     Commit(String),
     /// Inclusive multi-commit selection: `parent(oldest)` vs `newest` trees.
-    CommitRange { oldest: String, newest: String },
+    CommitRange {
+        oldest: String,
+        newest: String,
+    },
     Staged,
     Unstaged,
 }

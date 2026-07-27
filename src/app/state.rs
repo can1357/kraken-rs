@@ -22,18 +22,14 @@ use crate::{
     },
     graph::layout::GraphLayout,
     settings::{RecentRepo, Settings, SettingsStore},
-    term::{Terminal, TerminalSnapshot},
+    term::Terminal,
     ui::{
-        action::{
-            AddRemoteProvider, CursorHint, FileContextScope, HitRegion, ResizeTarget, ScrollTarget,
-            UiAction,
-        },
+        action::{AddRemoteProvider, FileContextScope, ResizeTarget, TextFieldTarget, UiAction},
         geometry::{
             COMMIT_HEADER_HEIGHT, COMMIT_ROW_HEIGHT, CONTENT_TOP, Rect, STATUS_BAR_HEIGHT, px,
         },
         menu::{MenuEntry, MenuSpec},
-        scene::Scene,
-        text_field::{Jump, TextField},
+        text_field::TextField,
     },
 };
 
@@ -119,31 +115,6 @@ pub(crate) enum FocusField {
     PreferenceText,
 }
 
-/// Editing keystroke normalized across the winit and automation front-ends.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct EditKey {
-    pub(crate) kind: EditKeyKind,
-    pub(crate) shift: bool,
-    pub(crate) alt: bool,
-    /// Primary shortcut modifier: Command or Control.
-    pub(crate) command: bool,
-}
-
-/// Key identity of an [`EditKey`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum EditKeyKind {
-    Left,
-    Right,
-    Up,
-    Down,
-    Home,
-    End,
-    Backspace,
-    Delete,
-    /// A character key pressed with the shortcut modifier (copy/paste/…).
-    Char(char),
-}
-
 /// Field focused when an Add Remote provider tab activates.
 pub(crate) fn add_remote_first_field(provider: AddRemoteProvider) -> FocusField {
     match provider {
@@ -151,12 +122,6 @@ pub(crate) fn add_remote_first_field(provider: AddRemoteProvider) -> FocusField 
         AddRemoteProvider::GitHub => FocusField::AddRemoteRepo,
         AddRemoteProvider::Gitea => FocusField::AddRemoteHost,
     }
-}
-
-/// Centered modal rect for the Add Remote form; shared by the overlay
-/// renderer and outside-click dismissal.
-pub(crate) fn add_remote_popup_rect(width: f32, height: f32) -> Rect {
-    Rect::new(width * 0.5 - 240.0, height * 0.5 - 196.0, 480.0, 392.0)
 }
 
 /// A validated Add Remote form result, ready to hand to the Git worker.
@@ -217,21 +182,6 @@ pub(crate) enum ToolbarOp {
 /// Number of [`ToolbarOp`] variants, sizing the in-flight counter array.
 const TOOLBAR_OPS: usize = 6;
 
-/// An in-flight branch/tag drag from a sidebar row or a graph ref chip.
-#[derive(Clone, Debug)]
-pub(crate) struct RefDrag {
-    /// Ref label as carried by its click action (e.g. `main`, `origin/x`, tag name).
-    pub(crate) source: String,
-    /// True when the dragged ref is a tag.
-    pub(crate) tag: bool,
-    /// Pointer position at press; the drag activates beyond a small threshold.
-    press: [f32; 2],
-    /// True once the pointer moved far enough to be a drag rather than a click.
-    pub(crate) active: bool,
-    /// Deferred click action dispatched when the press never became a drag.
-    click: UiAction,
-}
-
 /// Maps a Git job to the toolbar control that dispatched it, if any.
 fn toolbar_op(kind: &GitJobKind) -> Option<ToolbarOp> {
     match kind {
@@ -272,7 +222,10 @@ pub(crate) struct AppState {
     pub(crate) height: u32,
     pub(crate) mouse: [f32; 2],
     pub(crate) overlay_anchor: [f32; 2],
+    /// Full Slab scene key used to attach the active anchored overlay.
+    pub(crate) overlay_target: String,
     pub(crate) snapshot: Option<RepoSnapshot>,
+    snapshot_revision: u64,
     pub(crate) graph: GraphLayout,
     pub(crate) main_view: MainView,
     pub(crate) overlay: Overlay,
@@ -306,7 +259,7 @@ pub(crate) struct AppState {
     pub(crate) modifier_primary: bool,
     pub(crate) selected_file: Option<DiffRequest>,
     pub(crate) diff: Option<DiffDocument>,
-    pub(crate) palette: Option<crate::views::palette::PaletteState>,
+    pub(crate) palette: Option<crate::app::palette::PaletteState>,
     pub(crate) selected_working_files: HashSet<PathBuf>,
     pub(crate) collapsed_sections: HashSet<String>,
     pub(crate) commit_summary: TextField,
@@ -357,7 +310,6 @@ pub(crate) struct AppState {
     pub(crate) sidebar_stashes_scroll: f32,
     pub(crate) sidebar_tags_scroll: f32,
     pub(crate) sidebar_section_fractions: [f32; 5],
-    sidebar_section_drag: Option<(u8, f32, [f32; 5])>,
     pub(crate) detail_scroll: f32,
     pub(crate) wip_unstaged_scroll: f32,
     pub(crate) wip_staged_scroll: f32,
@@ -374,13 +326,10 @@ pub(crate) struct AppState {
     pub(crate) ai_loading: bool,
     pub(crate) settings: Settings,
     pub(crate) drag: Option<ResizeTarget>,
-    pub(crate) ref_drag: Option<RefDrag>,
     /// Explicit commit-detail message-block height; `0` uses the content size.
     pub(crate) detail_message_height: f32,
-    scrollbar_drag: Option<ScrollTarget>,
     pub(crate) terminal_height_fraction: f32,
-    pub(crate) hits: Vec<HitRegion>,
-    pub(crate) terminal: Option<Terminal>,
+    pub(crate) terminal: Option<Arc<Terminal>>,
     pub(crate) tabs: Vec<RepoTab>,
     pub(crate) active_tab: usize,
     repo_path: Option<PathBuf>,
@@ -517,7 +466,9 @@ impl AppState {
             height,
             mouse: [-10_000.0, -10_000.0],
             overlay_anchor: [0.0, 0.0],
+            overlay_target: String::new(),
             snapshot: None,
+            snapshot_revision: 0,
             graph: GraphLayout::default(),
             main_view: MainView::Graph,
             overlay: Overlay::None,
@@ -598,13 +549,11 @@ impl AppState {
             sidebar_stashes_scroll: 0.0,
             sidebar_tags_scroll: 0.0,
             sidebar_section_fractions: [1.0; 5],
-            sidebar_section_drag: None,
             detail_scroll: 0.0,
             wip_unstaged_scroll: 0.0,
             wip_staged_scroll: 0.0,
             diff_scroll: 0.0,
             preferences_scroll: 0.0,
-            scrollbar_drag: None,
             busy_jobs: 0,
             inflight_ops: [0; TOOLBAR_OPS],
             loading_history: false,
@@ -614,12 +563,10 @@ impl AppState {
             ai_loading: false,
             settings,
             drag: None,
-            ref_drag: None,
             detail_message_height: 0.0,
             terminal_open: false,
             terminal_focused: false,
             terminal_height_fraction: 0.20,
-            hits: Vec::new(),
             terminal: None,
             tabs: vec![RepoTab {
                 title: "New Tab".to_owned(),
@@ -642,14 +589,6 @@ impl AppState {
         }
     }
 
-    pub(crate) fn can_undo(&self) -> bool {
-        !self.undo_stack.is_empty()
-    }
-
-    pub(crate) fn can_redo(&self) -> bool {
-        !self.redo_stack.is_empty()
-    }
-
     /// True while a Git job dispatched by the given toolbar control is still running.
     pub(crate) fn op_in_flight(&self, op: ToolbarOp) -> bool {
         self.inflight_ops[op as usize] != 0
@@ -668,21 +607,6 @@ impl AppState {
         self.started.elapsed().as_secs_f32()
     }
 
-    /// Pointer position for base-layer hover effects; parked offscreen while
-    /// an overlay is open so popups never leak hover highlights underneath.
-    pub(crate) fn hover(&self) -> [f32; 2] {
-        if self.overlay == Overlay::None {
-            self.mouse
-        } else {
-            [-10_000.0, -10_000.0]
-        }
-    }
-
-    /// The active ref drag once the pointer crossed the click threshold.
-    pub(crate) fn dragging_ref(&self) -> Option<&RefDrag> {
-        self.ref_drag.as_ref().filter(|drag| drag.active)
-    }
-
     /// Updates the physical extent used by layout and splitter clamping.
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
         self.width = width.max(1);
@@ -692,20 +616,8 @@ impl AppState {
         self.resize_terminal();
     }
 
-    pub(crate) fn terminal_snapshot(&self) -> Option<TerminalSnapshot> {
-        self.terminal.as_ref().map(Terminal::snapshot)
-    }
-
     pub(crate) fn terminal_accepts_input(&self) -> bool {
         self.terminal_open && self.terminal_focused
-    }
-
-    pub(crate) fn terminal_input(&self, bytes: &[u8]) {
-        if self.terminal_accepts_input() {
-            if let Some(terminal) = &self.terminal {
-                terminal.write(bytes);
-            }
-        }
     }
 
     pub(crate) fn resize_terminal(&mut self) {
@@ -719,7 +631,7 @@ impl AppState {
         let font_size = f32::from(self.settings.terminal_font_size.max(8));
         let cell_width = font_size * 0.6;
         let cell_height = font_size * 1.2;
-        let rect = crate::views::Layout::for_state(self)
+        let rect = crate::ui::layout::Layout::for_state(self)
             .terminal
             .unwrap_or_else(|| Rect::new(0.0, 0.0, cell_width, cell_height * 3.0));
         let width = (rect.width - 24.0).max(cell_width);
@@ -752,7 +664,7 @@ impl AppState {
             };
             let (cols, rows) = self.terminal_dimensions();
             match Terminal::spawn(path, cols, rows, self.event_loop_proxy.clone()) {
-                Ok(terminal) => self.terminal = Some(terminal),
+                Ok(terminal) => self.terminal = Some(Arc::new(terminal)),
                 Err(error) => {
                     self.terminal_open = false;
                     self.error = Some(format!("Start terminal: {error:#}"));
@@ -764,11 +676,6 @@ impl AppState {
         }
         self.focus = FocusField::None;
         self.terminal_focused = true;
-    }
-
-    /// Replaces semantic hit regions after immediate layout.
-    pub(crate) fn adopt_scene(&mut self, scene: &Scene) {
-        self.hits.clone_from(&scene.hits);
     }
 
     /// Queues loading for the active repository tab and invalidates stale results.
@@ -783,6 +690,7 @@ impl AppState {
             tab.path = Some(path.clone());
         }
         self.generation = self.generation.wrapping_add(1);
+        self.snapshot_revision = self.snapshot_revision.wrapping_add(1);
         self.repo_path = Some(path);
         self.terminal = None;
         self.snapshot = None;
@@ -850,6 +758,9 @@ impl AppState {
     }
 
     fn show_welcome(&mut self) {
+        if self.repo_path.is_some() || self.snapshot.is_some() {
+            self.snapshot_revision = self.snapshot_revision.wrapping_add(1);
+        }
         self.repo_path = None;
         self.snapshot = None;
         self.detail = None;
@@ -994,10 +905,9 @@ impl AppState {
                     (range.oldest.clone(), range.newest.clone()),
                     Arc::clone(&range),
                 );
-                if self
-                    .selection_endpoints()
-                    .is_some_and(|(oldest, newest)| oldest == range.oldest && newest == range.newest)
-                {
+                if self.selection_endpoints().is_some_and(|(oldest, newest)| {
+                    oldest == range.oldest && newest == range.newest
+                }) {
                     self.range_detail = Some(range);
                 }
             }
@@ -1085,6 +995,11 @@ impl AppState {
         }
     }
 
+    /// Returns the monotonic revision of repository data used by UI projections.
+    pub(crate) fn snapshot_revision(&self) -> u64 {
+        self.snapshot_revision
+    }
+
     fn apply_snapshot(&mut self, snapshot: RepoSnapshot) {
         self.repo_path = Some(snapshot.path.clone());
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
@@ -1143,6 +1058,7 @@ impl AppState {
             self.graph = GraphLayout::build(&snapshot.commits);
         }
         self.snapshot = Some(snapshot);
+        self.snapshot_revision = self.snapshot_revision.wrapping_add(1);
     }
 
     /// Applies a watcher-detected working-tree change without touching the
@@ -1156,6 +1072,7 @@ impl AppState {
             return;
         }
         snapshot.working = working;
+        self.snapshot_revision = self.snapshot_revision.wrapping_add(1);
         // The file content behind an open working diff likely changed on disk.
         if let Some(request) = self.selected_file.clone()
             && matches!(request.scope, DiffScope::Staged | DiffScope::Unstaged)
@@ -1174,10 +1091,7 @@ impl AppState {
             DiffScope::Unstaged => (false, true),
             DiffScope::Commit(_) | DiffScope::CommitRange { .. } => return,
         };
-        let file = working
-            .files
-            .iter()
-            .find(|file| file.path == request.path);
+        let file = working.files.iter().find(|file| file.path == request.path);
         let remains_in_scope = file.is_some_and(|file| {
             (was_staged && file.staged.is_some()) || (was_unstaged && file.unstaged.is_some())
         });
@@ -1280,9 +1194,8 @@ impl AppState {
                         .find(|commit| self.selected_commits.contains(&commit.id))
                         .map(|commit| commit.id.clone())
                 });
-                self.selected_commit = topmost.or_else(|| {
-                    self.selected_commits.iter().next().cloned()
-                });
+                self.selected_commit =
+                    topmost.or_else(|| self.selected_commits.iter().next().cloned());
             }
         } else {
             self.selected_commits.insert(id.clone());
@@ -1290,11 +1203,6 @@ impl AppState {
             self.selection_anchor = Some(id);
         }
         self.range_detail = None;
-    }
-
-    /// Whether a graph row participates in the current selection.
-    pub(crate) fn is_commit_selected(&self, id: &str) -> bool {
-        self.selected_commits.contains(id) || self.selected_commit.as_deref() == Some(id)
     }
 
     /// Whether the commit is unpushed, from the loaded graph summary.
@@ -1545,6 +1453,18 @@ impl AppState {
                 self.diff_selected_rows.insert(row);
                 self.diff_drag_start = Some(row);
             }
+            UiAction::SelectDiffRow(row) => {
+                self.diff_selected_rows.clear();
+                self.diff_selected_rows.insert(row);
+                self.diff_drag_start = None;
+            }
+            UiAction::OpenDiffSelection(row) => {
+                self.diff_selected_rows.clear();
+                self.diff_selected_rows.insert(row);
+                self.diff_drag_start = None;
+                self.overlay_anchor = self.mouse;
+                self.show_popup(Overlay::DiffSelection, FocusField::None);
+            }
             UiAction::BeginDiffTextSelection {
                 row,
                 side,
@@ -1751,6 +1671,23 @@ impl AppState {
                     self.close_overlay();
                     self.copy_text(tag);
                 }
+            }
+            UiAction::OpenDropMenu {
+                source,
+                source_tag,
+                target,
+                target_tag,
+            } => {
+                self.overlay_anchor = self.mouse;
+                self.show_popup(
+                    Overlay::DropMenu {
+                        source,
+                        source_tag,
+                        target,
+                        target_tag,
+                    },
+                    FocusField::None,
+                );
             }
             UiAction::DropMerge => {
                 if let Overlay::DropMenu { source, .. } = self.overlay.clone() {
@@ -2338,6 +2275,12 @@ impl AppState {
                     limit: self.requested_limit,
                 });
             }
+            UiAction::RemoveLfsPattern(pattern) => {
+                self.settings
+                    .lfs_patterns
+                    .retain(|candidate| candidate != &pattern);
+                self.persist_settings();
+            }
             UiAction::OpenExternalEditor => self.open_external_tool(true),
             UiAction::OpenExternalTerminal => self.open_external_tool(false),
             UiAction::ToggleDiffLayout => self.diff_split = !self.diff_split,
@@ -2357,46 +2300,20 @@ impl AppState {
             UiAction::PreviousHunk => self.move_hunk(-1),
             UiAction::NextHunk => self.move_hunk(1),
             UiAction::SeekDiffRow(row) => self.seek_diff_row(row),
-            UiAction::ScrollbarJump(target) => {
-                self.set_scrollbar_fraction(
-                    target,
-                    self.scrollbar_fraction_at(target, self.mouse[1]),
-                );
-            }
-            UiAction::BeginScrollbarDrag(target) => {
-                self.scrollbar_drag = Some(target);
-                self.set_scrollbar_fraction(
-                    target,
-                    self.scrollbar_fraction_at(target, self.mouse[1]),
-                );
-            }
             UiAction::ToggleFileHistory => self.file_history = !self.file_history,
-            UiAction::RevealText => {}
+            UiAction::SetShowAgents(show) => {
+                self.settings.show_agents = show;
+                self.persist_settings();
+            }
             UiAction::ShowAiStatus => self.request_ai(),
             UiAction::DismissOverlay => {
                 self.close_overlay();
                 self.error = None;
                 self.toast = None;
             }
-            UiAction::BeginResize(target) => {
-                let table = crate::views::Layout::for_state(self).center;
-                let columns = crate::views::graph::column_layout(self, table);
-                if matches!(
-                    target,
-                    ResizeTarget::RefColumn
-                        | ResizeTarget::GraphColumn
-                        | ResizeTarget::MessageColumn
-                ) {
-                    self.ref_column_width = columns.refs.width;
-                    self.graph_column_width = columns.graph.width;
-                    self.message_column_width = columns.message.width;
-                }
-                if let ResizeTarget::SidebarSection(index) = target {
-                    self.sidebar_section_drag =
-                        Some((index, self.mouse[1], self.sidebar_section_fractions));
-                }
-                self.drag = Some(target);
-            }
+            UiAction::SetText { target, text } => self.set_slab_text(target, text),
+            UiAction::ResizeTo { target, extent } => self.resize_to(target, extent),
+            UiAction::ResetResize(target) => self.reset_resize(target),
         }
     }
 
@@ -2418,564 +2335,175 @@ impl AppState {
         }
     }
 
-    /// Dispatches the topmost left-click target under the pointer.
-    pub(crate) fn click(&mut self) {
-        if self.terminal_open
-            && crate::views::Layout::for_state(self)
-                .terminal
-                .is_some_and(|rect| !rect.contains(self.mouse))
-        {
-            self.terminal_focused = false;
-        }
-        if self
-            .active_popup_rect()
-            .is_some_and(|rect| !rect.contains(self.mouse))
-        {
-            self.dispatch(UiAction::DismissOverlay);
-            return;
-        }
-
-        let hovered = self
-            .hits
-            .iter()
-            .rev()
-            .filter(|hit| hit.rect.contains(self.mouse))
-            .collect::<Vec<_>>();
-        let target = hovered
-            .iter()
-            .find(|hit| {
-                hit.action != UiAction::DismissOverlay && hit.action != UiAction::RevealText
-            })
-            .or_else(|| hovered.first())
-            .map(|hit| (hit.action.clone(), hit.rect));
-        if let Some((action, rect)) = target {
-            if self.overlay == Overlay::None
-                && matches!(action, UiAction::BranchClick(_) | UiAction::TagClick(_))
-            {
-                let (source, tag) = match &action {
-                    UiAction::BranchClick(name) => (name.clone(), false),
-                    UiAction::TagClick(name) => (name.clone(), true),
-                    _ => unreachable!("guarded by the matches! above"),
-                };
-                self.ref_drag = Some(RefDrag {
-                    source,
-                    tag,
-                    press: self.mouse,
-                    active: false,
-                    click: action,
-                });
-                return;
-            }
-            let focuses_text = matches!(
-                action,
-                UiAction::FocusCommitSummary
-                    | UiAction::FocusCommitBody
-                    | UiAction::FocusSearch
-                    | UiAction::FocusBranchFilter
-                    | UiAction::FocusTabFilter
-                    | UiAction::FocusCreateBranch
-                    | UiAction::FocusRenameBranch
-                    | UiAction::FocusCreateTagName
-                    | UiAction::FocusCreateTagMessage
-                    | UiAction::FocusWelcomeSearch
-                    | UiAction::FocusCloneUrl
-                    | UiAction::FocusAddRemoteName
-                    | UiAction::FocusAddRemoteUrl
-                    | UiAction::FocusAddRemotePushUrl
-                    | UiAction::FocusAddRemoteRepo
-                    | UiAction::FocusAddRemoteHost
-                    | UiAction::FocusPalette
-                    | UiAction::FocusPreferenceText(_)
-                    | UiAction::FocusEditMessageSummary
-                    | UiAction::FocusEditMessageBody
-            );
-            self.dispatch(action);
-            if focuses_text {
-                self.place_caret_from_click(rect);
-            }
-        }
-    }
-
-    /// Places the caret at the pointer press inside a just-focused field.
-    ///
-    /// Column estimates mirror the fixed glyph advances the caret renderers
-    /// use for each input surface, so the caret lands where it is drawn.
-    fn place_caret_from_click(&mut self, rect: Rect) {
-        let mouse = self.mouse;
-        let editor_palette = self.overlay == Overlay::EditorPalette;
-        let focus = self.focus;
-        let Some(field) = self.focused_text() else {
-            return;
-        };
-        // (text inset, estimated glyph advance) per input surface.
-        let (inset, advance) = match focus {
-            FocusField::BranchFilter if rect.height < 30.0 => (8.0, 6.0),
-            FocusField::WelcomeSearch | FocusField::CloneUrl => (8.0, 6.0),
-            FocusField::PreferenceText => (8.0, 6.9),
-            FocusField::Palette => (12.0, 7.65),
-            _ => (9.0, 7.1),
-        };
-        let mut column = ((mouse[0] - rect.x - inset) / advance).round().max(0.0) as usize;
-        if focus == FocusField::Palette && editor_palette {
-            // The editor palette renders a `>` prefix before the query.
-            column = column.saturating_sub(1);
-        }
-        let line = match focus {
-            FocusField::CommitBody => {
-                (((mouse[1] - rect.y - 6.0) / 19.0).floor()).max(0.0) as usize
-            }
-            FocusField::EditMessageBody => {
-                (((mouse[1] - rect.y - 7.0) / 19.0).floor()).max(0.0) as usize
-            }
-            _ => 0,
-        };
-        field.place_caret(line, column);
-    }
-    /// Opens branch actions for a right-clicked branch row.
-    pub(crate) fn right_click(&mut self) {
-        if self
-            .active_popup_rect()
-            .is_some_and(|rect| !rect.contains(self.mouse))
-        {
-            self.dispatch(UiAction::DismissOverlay);
-            return;
-        }
-        let action = self.hits.iter().rev().find_map(|hit| {
-            if !hit.rect.contains(self.mouse) {
-                return None;
-            }
-            match &hit.action {
-                UiAction::CheckoutBranch(branch) => {
-                    Some(UiAction::OpenBranchContext(branch.clone()))
-                }
-                UiAction::BranchClick(branch) => Some(UiAction::OpenBranchContext(branch.clone())),
-                UiAction::TagClick(tag) => Some(UiAction::OpenTagContext(tag.clone())),
-                UiAction::OpenStashContext(index) => Some(UiAction::OpenStashContext(*index)),
-                UiAction::OpenTagContext(tag) => Some(UiAction::OpenTagContext(tag.clone())),
-                UiAction::SelectCommit(id) => Some(UiAction::OpenCommitContext(id.clone())),
-                UiAction::SelectFile { path, scope } => Some(UiAction::OpenFileContext {
-                    path: path.clone(),
-                    scope: match scope {
-                        DiffScope::Commit(id) => FileContextScope::Committed(id.clone()),
-                        // Range rows act on the newest commit, whose tree
-                        // provides the displayed content.
-                        DiffScope::CommitRange { newest, .. } => {
-                            FileContextScope::Committed(newest.clone())
-                        }
-                        DiffScope::Staged => FileContextScope::Staged,
-                        DiffScope::Unstaged => FileContextScope::Unstaged,
-                    },
-                }),
-                _ => None,
-            }
-        });
-        if let Some(action) = action {
-            self.dispatch(action);
-        }
-    }
-
-    /// Returns the pointer cursor requested by the topmost hovered region;
-    /// passive text-reveal regions never override an interactive cursor.
-    pub(crate) fn cursor_hint(&self) -> CursorHint {
-        self.hits
-            .iter()
-            .rev()
-            .filter(|hit| hit.rect.contains(self.mouse))
-            .find(|hit| hit.action != UiAction::RevealText)
-            .map_or(CursorHint::Default, |hit| hit.cursor)
-    }
-
-    /// Returns a delayed-hover tooltip candidate for the current pointer.
-    /// Scans down through stacked regions so passive truncation reveals under
-    /// interactive rows still surface.
-    pub(crate) fn tooltip(&self) -> Option<&str> {
-        self.hits
-            .iter()
-            .rev()
-            .filter(|hit| hit.rect.contains(self.mouse))
-            .find_map(|hit| hit.tooltip.as_deref())
-    }
-
-    /// Updates an active splitter or diff-gutter selection drag.
-    pub(crate) fn drag_to(&mut self, x: f32, y: f32) {
-        if let Some(drag) = &mut self.ref_drag
-            && !drag.active
-            && (x - drag.press[0]).hypot(y - drag.press[1]) > 5.0
-        {
-            drag.active = true;
-        }
-        if let Some(start) = self.diff_drag_start
-            && let Some(diff) = &self.diff
-        {
-            let row = ((y - CONTENT_TOP - 101.0 + self.diff_scroll)
-                / crate::views::diff::ROW_HEIGHT)
-                .floor()
-                .to_usize()
-                .unwrap_or(0)
-                .min(diff.rows.len().saturating_sub(1));
-            self.diff_selected_rows = (start.min(row)..=start.max(row)).collect();
-        }
-        if let Some((start_row, side, start_column)) = self.diff_text_drag
-            && let Some(hit) = self.hits.iter().rev().find(|hit| hit.rect.contains([x, y]))
-            && let UiAction::BeginDiffTextSelection {
-                row,
-                side: hit_side,
-                ..
-            } = hit.action
-            && hit_side == side
-        {
-            let column = ((x - hit.rect.x) / 7.2)
-                .max(0.0)
-                .floor()
-                .to_usize()
-                .unwrap_or(0);
-            self.diff_text_selection = Some(((start_row, side, start_column), (row, side, column)));
-        }
-        if let Some(target) = self.scrollbar_drag {
-            self.set_scrollbar_fraction(target, self.scrollbar_fraction_at(target, y));
-            return;
-        }
-        let Some(target) = self.drag else {
-            return;
-        };
-        let width = px(self.width);
-        let layout = crate::views::Layout::for_state(self);
-        match target {
-            ResizeTarget::Sidebar => {
-                if !self.settings.sidebar_collapsed {
-                    self.sidebar_width = x.clamp(190.0, width * 0.42);
-                }
-            }
-            ResizeTarget::SidebarSection(index) => {
-                if let Some((dragged, start_y, initial)) = self.sidebar_section_drag
-                    && dragged == index
-                    && let Some(next) = usize::from(index).checked_add(1).filter(|next| *next < 5)
-                {
-                    let pair = initial[usize::from(index)] + initial[next];
-                    let delta = (y - start_y) / layout.sidebar.height.max(1.0);
-                    let left = (initial[usize::from(index)] + delta).clamp(0.10, pair - 0.10);
-                    self.sidebar_section_fractions[usize::from(index)] = left;
-                    self.sidebar_section_fractions[next] = pair - left;
-                }
-            }
-            ResizeTarget::DetailPanel => {
-                let maximum = (width - layout.sidebar.width - 320.0).max(340.0);
-                self.detail_width = (width - x).clamp(340.0, maximum);
-            }
-            ResizeTarget::RefColumn => {
-                self.ref_column_width =
-                    crate::views::graph::resize_preference(self, layout.center, target, x);
-            }
-            ResizeTarget::GraphColumn => {
-                self.graph_column_width =
-                    crate::views::graph::resize_preference(self, layout.center, target, x);
-            }
-            ResizeTarget::MessageColumn => {
-                self.message_column_width =
-                    crate::views::graph::resize_preference(self, layout.center, target, x);
-            }
-            ResizeTarget::TerminalPane => {
-                if let Some(terminal) = layout.terminal {
-                    let available_height = layout.center.height + terminal.height;
-                    let font_size = f32::from(self.settings.terminal_font_size.max(8));
-                    let minimum = (font_size * 1.2 * 3.0 + 24.0).min(available_height);
-                    let maximum = (available_height * 0.8).max(minimum);
-                    let pane_height = (layout.status.y - y).clamp(minimum, maximum);
-                    self.terminal_height_fraction = pane_height / available_height.max(1.0);
-                }
-            }
-            ResizeTarget::DetailMessage => {
-                if let Some(detail) = layout.detail {
-                    self.detail_message_height =
-                        (y - detail.y).clamp(110.0, (detail.height * 0.7).max(110.0));
-                }
-            }
-        }
-        self.resize_terminal();
-    }
-
-    fn scrollbar_fraction_at(&self, target: ScrollTarget, y: f32) -> f32 {
-        let (viewport, _, _) = self.scrollbar_metrics(target);
-        ((y - viewport.y) / viewport.height.max(1.0)).clamp(0.0, 1.0)
-    }
-
-    fn set_scrollbar_fraction(&mut self, target: ScrollTarget, fraction: f32) {
-        let (_, content_height, scroll) = self.scrollbar_metrics(target);
-        *scroll(self) = (content_height - self.scrollbar_metrics(target).0.height).max(0.0)
-            * fraction.clamp(0.0, 1.0);
-    }
-
-    fn sidebar_local_scroll_ref(state: &mut Self) -> &mut f32 {
-        &mut state.sidebar_local_scroll
-    }
-
-    fn sidebar_remote_scroll_ref(state: &mut Self) -> &mut f32 {
-        &mut state.sidebar_remote_scroll
-    }
-
-    fn sidebar_worktrees_scroll_ref(state: &mut Self) -> &mut f32 {
-        &mut state.sidebar_worktrees_scroll
-    }
-
-    fn sidebar_stashes_scroll_ref(state: &mut Self) -> &mut f32 {
-        &mut state.sidebar_stashes_scroll
-    }
-
-    fn sidebar_tags_scroll_ref(state: &mut Self) -> &mut f32 {
-        &mut state.sidebar_tags_scroll
-    }
-
-    fn scrollbar_metrics(&self, target: ScrollTarget) -> (Rect, f32, fn(&mut Self) -> &mut f32) {
-        let layout = crate::views::Layout::for_state(self);
-        match target {
-            ScrollTarget::Graph => {
-                let body = Rect::new(
-                    layout.center.x,
-                    layout.center.y + COMMIT_HEADER_HEIGHT,
-                    layout.center.width,
-                    (layout.center.height - COMMIT_HEADER_HEIGHT).max(0.0),
-                );
-                let rows = self
-                    .graph
-                    .rows
-                    .len()
-                    .saturating_add(self.snapshot.as_ref().map_or(0, RepoSnapshot::wip_rows));
-                (
-                    body,
-                    rows.to_f32().unwrap_or(0.0) * COMMIT_ROW_HEIGHT,
-                    |state| &mut state.graph_scroll,
-                )
-            }
-            ScrollTarget::Detail => {
-                let rect = layout.detail.unwrap_or(layout.center);
-                let header_height = self.detail.as_ref().map_or(39.0, |detail| {
-                    let body = (!detail.body.is_empty())
-                        .then(|| detail.body.lines().count().clamp(1, 10) as f32 * 18.0 + 18.0)
-                        .unwrap_or(0.0);
-                    let conflicts = (!detail.conflicts.is_empty())
-                        .then(|| 32.0 + detail.conflicts.iter().take(5).count() as f32 * 18.0)
-                        .unwrap_or(0.0);
-                    39.0 + 18.0 + 55.0 + body + conflicts + 15.0
-                });
-                let viewport = Rect::new(
-                    rect.x + 1.0,
-                    rect.y + header_height,
-                    rect.width - 2.0,
-                    (rect.height - header_height).max(0.0),
-                );
-                let rows = crate::views::commit_detail::detail_row_count(self);
-                (viewport, 430.0 + rows as f32 * 24.0, |state| {
-                    &mut state.detail_scroll
-                })
-            }
-            ScrollTarget::WipUnstaged | ScrollTarget::WipStaged => {
-                let rect = layout.detail.unwrap_or(layout.center);
-                let sections = crate::views::wip::section_layout(self, rect);
-                if target == ScrollTarget::WipUnstaged {
-                    (sections.unstaged_view, sections.unstaged_content, |state| {
-                        &mut state.wip_unstaged_scroll
-                    })
-                } else {
-                    (sections.staged_view, sections.staged_content, |state| {
-                        &mut state.wip_staged_scroll
-                    })
-                }
-            }
-            ScrollTarget::Diff => {
-                let viewport = Rect::new(
-                    layout.center.x,
-                    layout.center.y + 101.0,
-                    layout.center.width,
-                    (layout.center.height - 101.0).max(0.0),
-                );
-                let content = self.diff.as_ref().map_or(0.0, |diff| {
-                    diff.rows.len() as f32 * crate::views::diff::ROW_HEIGHT
-                });
-                (viewport, content, |state| &mut state.diff_scroll)
-            }
-            ScrollTarget::SidebarLocal
-            | ScrollTarget::SidebarRemote
-            | ScrollTarget::SidebarWorktrees
-            | ScrollTarget::SidebarStashes
-            | ScrollTarget::SidebarTags => {
-                let (viewport, content_height) =
-                    crate::views::shell::sidebar_scrollbar_metrics(self, target)
-                        .unwrap_or((layout.sidebar, 0.0));
-                let scroll: fn(&mut Self) -> &mut f32 = match target {
-                    ScrollTarget::SidebarLocal => Self::sidebar_local_scroll_ref,
-                    ScrollTarget::SidebarRemote => Self::sidebar_remote_scroll_ref,
-                    ScrollTarget::SidebarWorktrees => Self::sidebar_worktrees_scroll_ref,
-                    ScrollTarget::SidebarStashes => Self::sidebar_stashes_scroll_ref,
-                    ScrollTarget::SidebarTags => Self::sidebar_tags_scroll_ref,
-                    _ => unreachable!("sidebar target already matched"),
-                };
-                (viewport, content_height, scroll)
-            }
-            ScrollTarget::Preferences => (layout.center, layout.center.height, |state| {
-                &mut state.preferences_scroll
-            }),
-        }
-    }
-
-    pub(crate) fn is_dragging(&self) -> bool {
-        self.drag.is_some()
-            || self.scrollbar_drag.is_some()
-            || self.diff_drag_start.is_some()
-            || self.diff_text_drag.is_some()
-            || self.ref_drag.is_some()
-    }
-
-    /// Ends a pointer-driven splitter or diff-gutter selection drag.
+    /// Ends a diff-gutter selection drag and settles splitter latching.
     pub(crate) fn end_drag(&mut self) {
         if self.diff_drag_start.take().is_some() && !self.diff_selected_rows.is_empty() {
             self.overlay_anchor = self.mouse;
             self.show_popup(Overlay::DiffSelection, FocusField::None);
-        }
-        if let Some(drag) = self.ref_drag.take() {
-            if drag.active {
-                let target = self.hits.iter().rev().find_map(|hit| {
-                    if !hit.rect.contains(self.mouse) {
-                        return None;
-                    }
-                    match &hit.action {
-                        UiAction::BranchClick(name) if *name != drag.source => {
-                            Some((name.clone(), false))
-                        }
-                        UiAction::TagClick(name) if *name != drag.source => {
-                            Some((name.clone(), true))
-                        }
-                        _ => None,
-                    }
-                });
-                if let Some((target, target_tag)) = target {
-                    self.overlay_anchor = self.mouse;
-                    self.show_popup(
-                        Overlay::DropMenu {
-                            source: drag.source,
-                            source_tag: drag.tag,
-                            target,
-                            target_tag,
-                        },
-                        FocusField::None,
-                    );
-                }
-            } else {
-                self.dispatch(drag.click);
-            }
         }
         self.diff_text_drag = None;
         if self.drag == Some(ResizeTarget::GraphColumn) {
             self.graph_column_explicit = true;
         }
         self.drag = None;
-        self.scrollbar_drag = None;
-        self.sidebar_section_drag = None;
     }
 
-    /// Scrolls the panel under the pointer and requests older commits near graph end.
-    pub(crate) fn scroll(&mut self, delta: f32) {
-        if self.preferences_open {
-            self.preferences_scroll = (self.preferences_scroll + delta).max(0.0);
-            return;
-        }
-        if let Some(skin) = crate::views::palette::skin(&self.overlay) {
-            if let Some(palette) = &mut self.palette {
-                let count = crate::views::palette::filtered_indices(skin, &palette.query).len();
-                let maximum = count.saturating_sub(8);
-                let amount = (delta / 40.0).round() as isize;
-                palette.scroll = palette.scroll.saturating_add_signed(amount).min(maximum);
+    /// Ends a Slab-driven graph column drag when the pointer releases.
+    ///
+    /// The kernel divider delivers live resize signals without a dedicated
+    /// begin/end pair, so `resize_to` arms `self.drag` and this clears it on
+    /// pointer-up — the same window HEAD spanned from `BeginResize` to
+    /// `end_drag`, including latching `graph_column_explicit` on release.
+    pub(crate) fn end_column_drag(&mut self) {
+        if matches!(
+            self.drag,
+            Some(ResizeTarget::RefColumn | ResizeTarget::GraphColumn | ResizeTarget::MessageColumn)
+        ) {
+            if self.drag == Some(ResizeTarget::GraphColumn) {
+                self.graph_column_explicit = true;
             }
-            return;
-        }
-        let top = CONTENT_TOP;
-        if self.mouse[1] < top {
-            return;
-        }
-        let layout = crate::views::Layout::for_state(self);
-        if self.mouse[0] < layout.sidebar.width {
-            if let Some(target) = crate::views::shell::sidebar_scroll_target_at(self, self.mouse) {
-                let (_, content_height, scroll) = self.scrollbar_metrics(target);
-                let maximum = (content_height - self.scrollbar_metrics(target).0.height).max(0.0);
-                *scroll(self) = (*scroll(self) + delta).clamp(0.0, maximum);
-            }
-            return;
-        }
-        if let Some(detail_rect) = layout.detail
-            && detail_rect.contains(self.mouse)
-        {
-            // The right panel owns the wheel: WIP file sections scroll
-            // individually under the pointer, never the graph or diff behind.
-            if crate::views::detail_shows_wip(self) {
-                if let Some(target) = crate::views::wip::scroll_target_at(self, self.mouse) {
-                    let (viewport, content_height, scroll) = self.scrollbar_metrics(target);
-                    let maximum = (content_height - viewport.height).max(0.0);
-                    *scroll(self) = (*scroll(self) + delta).clamp(0.0, maximum);
-                }
-            } else {
-                self.detail_scroll = (self.detail_scroll + delta).max(0.0);
-            }
-            return;
-        }
-        if self.terminal_open
-            && layout
-                .terminal
-                .is_some_and(|rect| rect.contains(self.mouse))
-        {
-            if let Some(terminal) = &self.terminal {
-                terminal.scroll((-delta / 18.0).round() as i32);
-            }
-            return;
-        }
-        match self.main_view {
-            MainView::Graph | MainView::Wip => {
-                let viewport =
-                    (px(self.height) - top - STATUS_BAR_HEIGHT - COMMIT_HEADER_HEIGHT).max(0.0);
-                let wip_rows = self.snapshot.as_ref().map_or(0, RepoSnapshot::wip_rows);
-                self.graph_scroll = (self.graph_scroll + delta).clamp(
-                    0.0,
-                    self.graph.max_scroll(viewport, COMMIT_ROW_HEIGHT, wip_rows),
-                );
-                let total_rows = self.graph.rows.len().saturating_add(wip_rows);
-                let near_end = self.graph_scroll + viewport
-                    >= total_rows.to_f32().unwrap_or(f32::MAX) * COMMIT_ROW_HEIGHT
-                        - COMMIT_ROW_HEIGHT * 10.0;
-                if near_end
-                    && !self.loading_history
-                    && self
-                        .snapshot
-                        .as_ref()
-                        .is_some_and(|snapshot| snapshot.has_more)
-                    && self.settings.lazy_load_commits
-                {
-                    self.loading_history = true;
-                    self.requested_limit = self.requested_limit.saturating_mul(2).min(100_000);
-                    self.submit(GitJobKind::LoadHistory {
-                        limit: self.requested_limit,
-                    });
-                }
-            }
-            MainView::Diff => self.scroll_diff_pixels(delta),
+            self.drag = None;
         }
     }
 
-    /// Inserts committed IME or typed text into the focused field, replacing
-    /// any selection. Newlines are kept in the commit body, mapped to spaces
-    /// in the commit summary, and stripped everywhere else.
-    pub(crate) fn insert_text(&mut self, text: &str) {
-        let filtered = text
-            .chars()
-            .filter(|character| !character.is_control() || *character == '\n')
-            .collect::<String>();
-        let filtered = match self.focus {
-            FocusField::CommitSummary => filtered.replace('\n', " "),
-            FocusField::CommitBody | FocusField::EditMessageBody => filtered,
-            _ => filtered.replace('\n', ""),
+    /// Replaces an application edit buffer with the value committed by Slab.
+    fn set_slab_text(&mut self, target: TextFieldTarget, text: String) {
+        let focus = match target {
+            TextFieldTarget::CommitSummary => FocusField::CommitSummary,
+            TextFieldTarget::CommitBody => FocusField::CommitBody,
+            TextFieldTarget::Search => FocusField::Search,
+            TextFieldTarget::DiffSearch => FocusField::DiffSearch,
+            TextFieldTarget::BranchFilter => FocusField::BranchFilter,
+            TextFieldTarget::TabFilter => FocusField::TabFilter,
+            TextFieldTarget::WelcomeSearch => FocusField::WelcomeSearch,
+            TextFieldTarget::CloneUrl => FocusField::CloneUrl,
+            TextFieldTarget::AddRemoteName => FocusField::AddRemoteName,
+            TextFieldTarget::AddRemoteUrl => FocusField::AddRemoteUrl,
+            TextFieldTarget::AddRemotePushUrl => FocusField::AddRemotePushUrl,
+            TextFieldTarget::AddRemoteRepo => FocusField::AddRemoteRepo,
+            TextFieldTarget::AddRemoteHost => FocusField::AddRemoteHost,
+            TextFieldTarget::Palette => FocusField::Palette,
+            TextFieldTarget::Preference(key) => {
+                self.preference_text_key = Some(key);
+                FocusField::PreferenceText
+            }
+            TextFieldTarget::OverlayField(slot) => match (&self.overlay, slot) {
+                (Overlay::CreateBranch, 1) => FocusField::CreateBranch,
+                (Overlay::RenameBranch(_), 1) => FocusField::RenameBranch,
+                (Overlay::CreateTag(_), 1) => FocusField::CreateTagName,
+                (Overlay::CreateTag(_), 2) => FocusField::CreateTagMessage,
+                (Overlay::EditCommitMessage(_), 1) => FocusField::EditMessageSummary,
+                (Overlay::EditCommitMessage(_), 2) => FocusField::EditMessageBody,
+                _ => return,
+            },
         };
-        let Some(field) = self.focused_text() else {
+        self.focus = focus;
+        if let Some(field) = self.focused_text() {
+            field.set_text(text);
+            self.after_edit();
+        }
+    }
+
+    /// Persists a final Slab divider extent in the corresponding app setting.
+    fn resize_to(&mut self, target: ResizeTarget, extent: f32) {
+        if !extent.is_finite() {
             return;
-        };
-        field.insert(&filtered);
-        self.after_edit();
+        }
+        let layout = crate::ui::layout::Layout::for_state(self);
+        match target {
+            ResizeTarget::Sidebar => self.sidebar_width = extent,
+            ResizeTarget::DetailPanel => {
+                let available = layout.center.width + layout.detail.map_or(0.0, |rect| rect.width);
+                self.detail_width = (available - extent).max(0.0);
+            }
+            // The kernel divider reports its leading header spacer's extent,
+            // which excludes the 4px divider strip: the dragged column edge
+            // sits at extent + 4. Convert to the edge position and route
+            // through resize_preference so live drags keep HEAD's clamps
+            // (HEAD state.rs drag_to: RefColumn/GraphColumn/MessageColumn all
+            // call crate::ui::layout::resize_preference). Holding
+            // `self.drag` until pointer release mirrors HEAD's
+            // BeginResize..end_drag window, so column_layout applies its
+            // explicit-drag floors while the divider moves.
+            ResizeTarget::RefColumn | ResizeTarget::GraphColumn | ResizeTarget::MessageColumn => {
+                if self.drag != Some(target) {
+                    // First live event of this drag: pin every preference to
+                    // its effective width so the explicit-drag floors below
+                    // don't shift the other columns (HEAD BeginResize did the
+                    // same snapshot before arming `drag`).
+                    let columns = crate::ui::layout::column_layout(self, layout.center);
+                    self.ref_column_width = columns.refs.width;
+                    self.graph_column_width = columns.graph.width;
+                    self.message_column_width = columns.message.width;
+                    self.drag = Some(target);
+                }
+                let columns = crate::ui::layout::column_layout(self, layout.center);
+                let edge = match target {
+                    ResizeTarget::RefColumn => layout.center.x,
+                    ResizeTarget::GraphColumn => columns.refs.right(),
+                    _ => columns.graph.right(),
+                } + extent
+                    + 4.0;
+                let width = crate::ui::layout::resize_preference(self, layout.center, target, edge);
+                match target {
+                    ResizeTarget::RefColumn => self.ref_column_width = width,
+                    ResizeTarget::GraphColumn => self.graph_column_width = width,
+                    _ => self.message_column_width = width,
+                }
+            }
+            ResizeTarget::TerminalPane => {
+                let available =
+                    layout.center.height + layout.terminal.map_or(0.0, |rect| rect.height);
+                let pane_height = (available - extent).max(0.0);
+                self.terminal_height_fraction = pane_height / available.max(1.0);
+                self.resize_terminal();
+            }
+            // The slab divider emits the message content column's extent;
+            // stored height keeps HEAD's meaning (40px panel header + content
+            // + 14px resize strip), so persisted values stay compatible.
+            ResizeTarget::DetailMessage => self.detail_message_height = extent + 54.0,
+        }
+    }
+
+    /// Restores the persisted extent for a double-clicked Slab divider.
+    fn reset_resize(&mut self, target: ResizeTarget) {
+        match target {
+            ResizeTarget::Sidebar => self.sidebar_width = 260.0,
+            ResizeTarget::DetailPanel => self.detail_width = 690.0,
+            ResizeTarget::RefColumn => self.ref_column_width = 440.0,
+            ResizeTarget::GraphColumn => {
+                self.graph_column_width = 410.0;
+                self.graph_column_explicit = false;
+            }
+            ResizeTarget::MessageColumn => self.message_column_width = 0.0,
+            ResizeTarget::TerminalPane => {
+                self.terminal_height_fraction = 0.20;
+                self.resize_terminal();
+            }
+            ResizeTarget::DetailMessage => self.detail_message_height = 0.0,
+        }
+    }
+
+    /// Mirrors a kernel-owned main-axis scroll change into projection state.
+    pub(crate) fn apply_slab_scroll(&mut self, key: &str, axis: u32, offset: f64) {
+        if axis != 0 || !offset.is_finite() {
+            return;
+        }
+        let offset = offset.to_f32().unwrap_or(f32::MAX).max(0.0);
+        match key {
+            "sidebar-list" => self.sidebar_scroll = offset,
+            "graph-scroll" => self.graph_scroll = offset,
+            "unstaged-scroll" => self.wip_unstaged_scroll = offset,
+            "staged-scroll" => self.wip_staged_scroll = offset,
+            "commit-detail-scroll" | "multi-detail-scroll" => self.detail_scroll = offset,
+            "diff-scroll" => {
+                self.diff_scroll = offset;
+                self.diff_scroll_target = offset;
+                self.diff_scroll_updated = None;
+            }
+            "preferences-scroll" => self.preferences_scroll = offset,
+            _ => {}
+        }
     }
 
     /// The text field owning keyboard focus, when there is one.
@@ -3015,7 +2543,7 @@ impl AppState {
             FocusField::DiffSearch => self.diff_search_cursor = 0,
             FocusField::Palette => {
                 if let Some(palette) = &mut self.palette {
-                    crate::views::palette::reset_selection(palette);
+                    crate::app::palette::reset_selection(palette);
                 }
             }
             FocusField::PreferenceText => {
@@ -3025,91 +2553,6 @@ impl AppState {
                 }
             }
             _ => {}
-        }
-    }
-
-    /// Applies a caret, deletion, or clipboard keystroke to the focused field.
-    ///
-    /// Returns `false` when the key is not a text-editing command for the
-    /// current focus so front-ends fall through to their global bindings.
-    pub(crate) fn edit_key(&mut self, key: EditKey) -> bool {
-        if self.focus == FocusField::None {
-            return false;
-        }
-        let jump = if key.command {
-            Jump::Edge
-        } else if key.alt {
-            Jump::Word
-        } else {
-            Jump::Char
-        };
-        match key.kind {
-            EditKeyKind::Char(character) if key.command && !key.alt => {
-                match character.to_ascii_lowercase() {
-                    'a' if !key.shift => self.focused_text().map(TextField::select_all).is_some(),
-                    'c' => {
-                        let text = self
-                            .focused_text()
-                            .map(|field| field.selected_text().to_owned())
-                            .unwrap_or_default();
-                        if text.is_empty() {
-                            return false;
-                        }
-                        self.copy_text(text);
-                        true
-                    }
-                    'x' => {
-                        let Some(text) = self
-                            .focused_text()
-                            .map(TextField::take_selection)
-                            .filter(|text| !text.is_empty())
-                        else {
-                            return false;
-                        };
-                        self.copy_text(text);
-                        self.after_edit();
-                        true
-                    }
-                    'v' => {
-                        if let Ok(text) =
-                            arboard::Clipboard::new().and_then(|mut clipboard| clipboard.get_text())
-                        {
-                            self.insert_text(&text);
-                        }
-                        true
-                    }
-                    _ => false,
-                }
-            }
-            EditKeyKind::Char(_) => false,
-            EditKeyKind::Up | EditKeyKind::Down
-                if !matches!(
-                    self.focus,
-                    FocusField::CommitBody | FocusField::EditMessageBody
-                ) =>
-            {
-                false
-            }
-            _ => {
-                let Some(field) = self.focused_text() else {
-                    return false;
-                };
-                match key.kind {
-                    EditKeyKind::Left => field.move_left(jump, key.shift),
-                    EditKeyKind::Right => field.move_right(jump, key.shift),
-                    EditKeyKind::Home => field.move_left(Jump::Edge, key.shift),
-                    EditKeyKind::End => field.move_right(Jump::Edge, key.shift),
-                    EditKeyKind::Up => field.move_vertical(-1, key.shift),
-                    EditKeyKind::Down => field.move_vertical(1, key.shift),
-                    EditKeyKind::Backspace => field.backspace(jump),
-                    EditKeyKind::Delete => field.delete_forward(jump),
-                    EditKeyKind::Char(_) => unreachable!("handled above"),
-                }
-                if matches!(key.kind, EditKeyKind::Backspace | EditKeyKind::Delete) {
-                    self.after_edit();
-                }
-                true
-            }
         }
     }
 
@@ -3212,21 +2655,9 @@ impl AppState {
         self.diff_scroll_updated = Some(Instant::now());
     }
 
-    pub(crate) fn scroll_diff_lines(&mut self, delta: f32) {
-        self.diff_scroll_target =
-            (self.diff_scroll_target + delta).clamp(0.0, self.max_diff_scroll());
-        self.diff_scroll_updated = Some(Instant::now());
-    }
-
-    pub(crate) fn scroll_diff_pixels(&mut self, delta: f32) {
-        self.diff_scroll = (self.diff_scroll + delta).clamp(0.0, self.max_diff_scroll());
-        self.diff_scroll_target = self.diff_scroll;
-        self.diff_scroll_updated = None;
-    }
-
     fn max_diff_scroll(&self) -> f32 {
         let content = self.diff.as_ref().map_or(0.0, |diff| {
-            diff.rows.len().to_f32().unwrap_or(0.0) * crate::views::diff::ROW_HEIGHT
+            diff.rows.len().to_f32().unwrap_or(0.0) * crate::ui::layout::DIFF_ROW_HEIGHT
         });
         (content - (px(self.height) - CONTENT_TOP - 101.0).max(0.0)).max(0.0)
     }
@@ -3268,6 +2699,23 @@ impl AppState {
         };
         self.diff_text_selection = Some(selection);
         self.diff_text_drag = Some(selection.0);
+    }
+
+    /// Extends the active diff-gutter drag to `row`.
+    pub(crate) fn update_diff_line_drag(&mut self, row: usize) {
+        if let Some(start) = self.diff_drag_start {
+            self.diff_selected_rows = (start.min(row)..=start.max(row)).collect();
+        }
+    }
+
+    /// Extends the active diff-text drag while it remains on the source side.
+    pub(crate) fn update_diff_text_drag(&mut self, row: usize, side: u8, column: usize) {
+        if let Some((start_row, start_side, start_column)) = self.diff_text_drag
+            && start_side == side
+        {
+            self.diff_text_selection =
+                Some(((start_row, start_side, start_column), (row, side, column)));
+        }
     }
     fn copy_text(&mut self, text: String) {
         match arboard::Clipboard::new() {
@@ -3352,7 +2800,7 @@ impl AppState {
             (self.diff_search_cursor + 1) % matches.len()
         };
         self.diff_scroll_target = (matches[self.diff_search_cursor].0.to_f32().unwrap_or(0.0)
-            * crate::views::diff::ROW_HEIGHT
+            * crate::ui::layout::DIFF_ROW_HEIGHT
             - 80.0)
             .clamp(0.0, self.max_diff_scroll());
         self.diff_scroll_updated = Some(Instant::now());
@@ -3818,27 +3266,27 @@ impl AppState {
             self.close_overlay();
             return;
         }
-        self.palette = Some(crate::views::palette::PaletteState::default());
+        self.palette = Some(crate::app::palette::PaletteState::default());
         self.show_popup(overlay, FocusField::Palette);
     }
 
     fn move_palette(&mut self, delta: i32) {
-        let Some(skin) = crate::views::palette::skin(&self.overlay) else {
+        let Some(skin) = crate::app::palette::skin(&self.overlay) else {
             return;
         };
         if let Some(palette) = &mut self.palette {
-            crate::views::palette::move_cursor(palette, skin, delta);
+            crate::app::palette::move_cursor(palette, skin, delta);
         }
     }
 
     fn execute_palette_command(&mut self, index: usize) {
-        let Some(skin) = crate::views::palette::skin(&self.overlay) else {
+        let Some(skin) = crate::app::palette::skin(&self.overlay) else {
             return;
         };
         let action = self
             .palette
             .as_ref()
-            .and_then(|palette| crate::views::palette::action_for(skin, index, &palette.query));
+            .and_then(|palette| crate::app::palette::action_for(skin, index, &palette.query));
         self.close_overlay();
         if let Some(action) = action {
             self.dispatch(action);
@@ -3864,6 +3312,7 @@ impl AppState {
     fn close_overlay(&mut self) {
         self.palette = None;
         self.overlay = Overlay::None;
+        self.overlay_target.clear();
         self.focus = std::mem::take(&mut self.overlay_focus);
     }
 
@@ -4082,136 +3531,6 @@ impl AppState {
             _ => None,
         }
     }
-
-    /// Drawn-layout bounds of the active context menu, including any open
-    /// submenu; used for outside-click dismissal.
-    fn context_menu_bounds(&self) -> Option<Rect> {
-        let spec = self.context_menu()?;
-        Some(
-            crate::ui::menu::layout(
-                &spec,
-                self.overlay_anchor,
-                [px(self.width), px(self.height)],
-                self.mouse,
-            )
-            .bounds(),
-        )
-    }
-
-    fn active_popup_rect(&self) -> Option<Rect> {
-        let width = px(self.width);
-        let height = px(self.height);
-        if self.error.is_some() {
-            return Some(Rect::new(
-                width * 0.5 - 200.0,
-                height * 0.5 - 120.0,
-                400.0,
-                240.0,
-            ));
-        }
-
-        let layout = crate::views::Layout::for_state(self);
-        match &self.overlay {
-            Overlay::None => None,
-            Overlay::Branches => Some(Rect::new(128.0, 48.0, 320.0, 520.0_f32.min(height - 64.0))),
-            Overlay::Lfs => {
-                let start = crate::views::shell::action_cluster_start(
-                    self.tabs.len(),
-                    layout.toolbar.width,
-                );
-                Some(Rect::new(
-                    (start + 238.0).min(layout.toolbar.right() - 252.0),
-                    layout.toolbar.bottom() + 4.0,
-                    240.0,
-                    168.0,
-                ))
-            }
-            Overlay::Actions => Some(Rect::new(
-                layout.toolbar.right() - 240.0,
-                layout.toolbar.bottom() + 4.0,
-                224.0,
-                164.0,
-            )),
-            Overlay::PullOptions => Some(Rect::new(
-                crate::views::shell::action_cluster_start(self.tabs.len(), layout.toolbar.width)
-                    + 24.0,
-                layout.toolbar.bottom() + 4.0,
-                310.0,
-                190.0,
-            )),
-            Overlay::CommitOptions => Some(Rect::new(
-                self.overlay_anchor[0].clamp(12.0, width - 190.0),
-                self.overlay_anchor[1].clamp(12.0, height - 52.0),
-                178.0,
-                38.0,
-            )),
-            Overlay::DiffSelection => {
-                let menu_height = if self
-                    .selected_file
-                    .as_ref()
-                    .is_some_and(|request| matches!(request.scope, DiffScope::Staged))
-                {
-                    76.0
-                } else {
-                    110.0
-                };
-                Some(Rect::new(
-                    self.overlay_anchor[0].clamp(8.0, width - 210.0),
-                    self.overlay_anchor[1].clamp(8.0, height - menu_height - 8.0),
-                    202.0,
-                    menu_height,
-                ))
-            }
-            Overlay::Tabs => Some(Rect::new(width - 320.0, 48.0, 300.0, 240.0)),
-            Overlay::Notifications => Some(Rect::new(width - 380.0, 48.0, 360.0, 400.0)),
-            Overlay::CreateBranch => Some(Rect::new(
-                width * 0.5 - 200.0,
-                height * 0.5 - 100.0,
-                400.0,
-                200.0,
-            )),
-            Overlay::AddRemote => Some(add_remote_popup_rect(width, height)),
-            Overlay::RenameBranch(_) => Some(Rect::new(
-                width * 0.5 - 200.0,
-                height * 0.5 - 100.0,
-                400.0,
-                200.0,
-            )),
-            Overlay::CreateTag(_) => Some(Rect::new(
-                width * 0.5 - 200.0,
-                height * 0.5 - 128.0,
-                400.0,
-                256.0,
-            )),
-            Overlay::StashContext(_)
-            | Overlay::TagContext(_)
-            | Overlay::BranchContext(_)
-            | Overlay::CommitContext(_)
-            | Overlay::FileContext { .. }
-            | Overlay::DropMenu { .. } => self.context_menu_bounds(),
-            Overlay::EditCommitMessage(_) => Some(Rect::new(
-                width * 0.5 - 210.0,
-                height * 0.5 - 130.0,
-                420.0,
-                260.0,
-            )),
-            Overlay::Ai => Some(Rect::new(
-                width * 0.5 - 280.0,
-                height * 0.5 - 180.0,
-                560.0,
-                360.0,
-            )),
-            Overlay::CommandPalette => Some(crate::views::palette::popup_rect(
-                self,
-                crate::views::palette::PaletteSkin::General,
-            )),
-            Overlay::EditorPalette => Some(crate::views::palette::popup_rect(
-                self,
-                crate::views::palette::PaletteSkin::Editor,
-            )),
-        }
-    }
-
     fn submit_lfs(&mut self, operation: LfsOperation) {
         self.close_overlay();
         self.submit_mutation(GitJobKind::Lfs {
@@ -4455,7 +3774,7 @@ fn is_mutation_job(kind: &GitJobKind) -> bool {
 
 /// Scroll offset that rests `row` three lines below the top of the diff canvas.
 fn seek_scroll(row: usize) -> f32 {
-    row.saturating_sub(3).to_f32().unwrap_or(0.0) * crate::views::diff::ROW_HEIGHT
+    row.saturating_sub(3).to_f32().unwrap_or(0.0) * crate::ui::layout::DIFF_ROW_HEIGHT
 }
 
 fn add_signed<T>(value: T, delta: i32, minimum: T, maximum: T) -> T
@@ -4478,7 +3797,6 @@ mod tests {
     use git2::{Repository, Signature};
 
     use super::*;
-    use crate::{ui::Theme, views};
 
     fn repository_with_working_file() -> (tempfile::TempDir, PathBuf) {
         let directory = tempfile::tempdir().expect("temporary repository");
@@ -4539,7 +3857,14 @@ mod tests {
             .and_then(|head| head.peel_to_commit().ok());
         let parents = parent.iter().collect::<Vec<_>>();
         repository
-            .commit(Some("HEAD"), &signature, &signature, message, &tree, &parents)
+            .commit(
+                Some("HEAD"),
+                &signature,
+                &signature,
+                message,
+                &tree,
+                &parents,
+            )
             .expect("create commit")
             .to_string()
     }
@@ -4560,8 +3885,18 @@ mod tests {
     #[test]
     fn modifier_clicks_assemble_multi_selection_and_combined_range() {
         let (repository_directory, _) = repository_with_working_file();
-        commit_file(repository_directory.path(), "b.txt", "bee\n", "feat: added b");
-        commit_file(repository_directory.path(), "c.txt", "sea\n", "feat: added c");
+        commit_file(
+            repository_directory.path(),
+            "b.txt",
+            "bee\n",
+            "feat: added b",
+        );
+        commit_file(
+            repository_directory.path(),
+            "c.txt",
+            "sea\n",
+            "feat: added c",
+        );
         let settings_directory = tempfile::tempdir().expect("temporary settings directory");
         let store = SettingsStore::at(settings_directory.path().join("settings.toml"));
         let mut state = AppState::base(1_200, 800, store, Settings::default());
@@ -4629,7 +3964,12 @@ mod tests {
     #[test]
     fn reselecting_a_commit_reuses_the_cached_detail_without_a_job() {
         let (repository_directory, _) = repository_with_working_file();
-        commit_file(repository_directory.path(), "b.txt", "bee\n", "feat: added b");
+        commit_file(
+            repository_directory.path(),
+            "b.txt",
+            "bee\n",
+            "feat: added b",
+        );
         let settings_directory = tempfile::tempdir().expect("temporary settings directory");
         let store = SettingsStore::at(settings_directory.path().join("settings.toml"));
         let mut state = AppState::base(1_200, 800, store, Settings::default());
@@ -4686,31 +4026,14 @@ mod tests {
         assert_eq!(state.overlay, Overlay::None);
     }
     #[test]
-    fn popup_click_outside_dismisses_without_dispatching_the_underlying_action() {
+    fn escape_dismisses_menu_without_stealing_focus() {
+        // Outside-click dismissal is kernel-owned and covered by the authored
+        // overlay tests in ui::slab; state-level escape must match it.
         let settings_directory = tempfile::tempdir().expect("temporary settings directory");
         let store = SettingsStore::at(settings_directory.path().join("settings.toml"));
         let mut state = AppState::base(1_200, 800, store, Settings::default());
         state.tabs[0].path = Some(std::env::temp_dir());
         state.focus = FocusField::CommitSummary;
-        state.dispatch(UiAction::ToggleActionsMenu);
-
-        let scene = views::build_scene(&state, &Theme::dark());
-        state.adopt_scene(&scene);
-        let outside = state
-            .hits
-            .iter()
-            .find(|hit| hit.action == UiAction::ToggleBranchMenu)
-            .expect("branch menu target remains outside actions popup")
-            .rect;
-        state.mouse = [
-            outside.x + outside.width * 0.5,
-            outside.y + outside.height * 0.5,
-        ];
-        state.click();
-
-        assert_eq!(state.overlay, Overlay::None);
-        assert_eq!(state.focus, FocusField::CommitSummary);
-
         state.dispatch(UiAction::ToggleActionsMenu);
         state.escape();
         assert_eq!(state.overlay, Overlay::None);
@@ -4800,17 +4123,7 @@ mod tests {
         state
             .commit_body
             .set_text("Exercised stage, diff, and commit actions.");
-        state.mouse = [900.0, 740.0];
-        state.adopt_scene(&views::build_scene(&state, &Theme::dark()));
-        let action = state
-            .hits
-            .iter()
-            .rev()
-            .find(|hit| hit.rect.contains(state.mouse))
-            .map(|hit| hit.action.clone())
-            .expect("hover commit action");
-        assert_eq!(action, UiAction::Commit);
-        state.click();
+        state.dispatch(UiAction::Commit);
         wait_until(&mut state, |state| {
             state.busy_jobs == 0
                 && state
@@ -4934,7 +4247,10 @@ mod tests {
         });
 
         state.dispatch(UiAction::ToggleSearch);
-        state.insert_text("initialized");
+        state.dispatch(UiAction::SetText {
+            target: TextFieldTarget::Search,
+            text: "initialized".to_owned(),
+        });
         assert_eq!(state.search_results(), [0]);
         state.dispatch(UiAction::NextSearchResult);
         assert_eq!(state.search_cursor, 0);
@@ -4947,49 +4263,16 @@ mod tests {
                 .map(|commit| commit.id.clone())
         );
 
-        state.adopt_scene(&views::build_scene(&state, &Theme::dark()));
-        let controls = state
-            .hits
-            .iter()
-            .filter(|hit| {
-                matches!(
-                    hit.action,
-                    UiAction::PreviousSearchResult
-                        | UiAction::NextSearchResult
-                        | UiAction::CloseSearch
-                )
-            })
-            .map(|hit| hit.rect)
-            .collect::<Vec<_>>();
-        assert_eq!(controls.len(), 3);
-        assert!(
-            controls
-                .windows(2)
-                .all(|pair| pair[0].intersection(pair[1]).is_none()),
-            "search navigation and close hit regions must not overlap"
-        );
-        let close = state
-            .hits
-            .iter()
-            .find(|hit| hit.action == UiAction::CloseSearch)
-            .map(|hit| hit.rect)
-            .expect("close search target");
-        state.mouse = [close.x + close.width * 0.5, close.y + close.height * 0.5];
-        state.click();
+        state.dispatch(UiAction::CloseSearch);
         assert_eq!(state.focus, FocusField::None);
         assert!(state.search.is_empty());
         assert!(state.search_results().is_empty());
-        let scene = views::build_scene(&state, &Theme::dark());
-        assert!(
-            !scene
-                .hits
-                .iter()
-                .any(|hit| hit.action == UiAction::CloseSearch),
-            "closed search must remove its overlay controls"
-        );
 
         state.dispatch(UiAction::ToggleSearch);
-        state.insert_text("initialized");
+        state.dispatch(UiAction::SetText {
+            target: TextFieldTarget::Search,
+            text: "initialized".to_owned(),
+        });
         state.escape();
         assert_eq!(state.focus, FocusField::None);
         assert!(state.search.is_empty());
@@ -5026,19 +4309,25 @@ mod tests {
         wait_until(&mut state, |state| state.busy_jobs == 0);
         state.commit_summary.set_text("feat: reversible commit");
         state.dispatch(UiAction::Commit);
-        wait_until(&mut state, |state| state.busy_jobs == 0 && state.can_undo());
+        wait_until(&mut state, |state| {
+            state.busy_jobs == 0 && !state.undo_stack.is_empty()
+        });
         let committed = state
             .snapshot
             .as_ref()
             .and_then(|snapshot| snapshot.head_id.clone())
             .expect("committed head");
         state.dispatch(UiAction::Undo);
-        wait_until(&mut state, |state| state.busy_jobs == 0 && state.can_redo());
+        wait_until(&mut state, |state| {
+            state.busy_jobs == 0 && !state.redo_stack.is_empty()
+        });
         let undone = state.snapshot.as_ref().expect("undo snapshot");
         assert_eq!(undone.head_id.as_deref(), Some(before.as_str()));
         assert_eq!(undone.working.staged_count(), 1);
         state.dispatch(UiAction::Redo);
-        wait_until(&mut state, |state| state.busy_jobs == 0 && state.can_undo());
+        wait_until(&mut state, |state| {
+            state.busy_jobs == 0 && !state.undo_stack.is_empty()
+        });
         assert_eq!(
             state
                 .snapshot
@@ -5048,7 +4337,7 @@ mod tests {
         );
     }
     #[test]
-    fn dragging_graph_columns_tracks_effective_dividers() {
+    fn resize_to_tracks_effective_dividers() {
         let settings_directory = tempfile::tempdir().expect("temporary settings directory");
         let store = SettingsStore::at(settings_directory.path().join("settings.toml"));
         let mut state = AppState::base(1_600, 900, store, Settings::default());
@@ -5058,43 +4347,43 @@ mod tests {
         state.message_column_width = 300.0;
         state.graph.max_lanes = 14;
 
-        let table = crate::views::Layout::for_state(&state).center;
-        let before_ref = crate::views::graph::column_layout(&state, table);
-        state.drag = Some(ResizeTarget::RefColumn);
-        state.drag_to(before_ref.refs.right() + 20.0, 0.0);
-        let after_ref = crate::views::graph::column_layout(
+        // The kernel divider reports the leading spacer's extent; the dragged
+        // edge sits at base + extent + 4 (see resize_to), so a desired edge
+        // converts back by subtracting the base column edge and strip width.
+        let table = crate::ui::layout::Layout::for_state(&state).center;
+        let before_ref = crate::ui::layout::column_layout(&state, table);
+        state.dispatch(UiAction::ResizeTo {
+            target: ResizeTarget::RefColumn,
+            extent: before_ref.refs.right() + 20.0 - table.x - 4.0,
+        });
+        let after_ref = crate::ui::layout::column_layout(
             &state,
-            crate::views::Layout::for_state(&state).center,
+            crate::ui::layout::Layout::for_state(&state).center,
         );
-        assert!((after_ref.refs.right() - before_ref.refs.right() - 20.0).abs() < f32::EPSILON);
+        assert!((after_ref.refs.right() - before_ref.refs.right() - 20.0).abs() < 0.01);
 
-        state.drag = Some(ResizeTarget::GraphColumn);
-        let before_graph = crate::views::graph::column_layout(
+        let before_graph = after_ref;
+        state.dispatch(UiAction::ResizeTo {
+            target: ResizeTarget::GraphColumn,
+            extent: before_graph.graph.right() + 100.0 - before_graph.refs.right() - 4.0,
+        });
+        let after_graph = crate::ui::layout::column_layout(
             &state,
-            crate::views::Layout::for_state(&state).center,
+            crate::ui::layout::Layout::for_state(&state).center,
         );
-        state.drag_to(before_graph.graph.right() + 100.0, 0.0);
-        let after_graph = crate::views::graph::column_layout(
+        assert!((after_graph.graph.right() - before_graph.graph.right() - 100.0).abs() < 0.01);
+
+        let before_message = after_graph;
+        state.dispatch(UiAction::ResizeTo {
+            target: ResizeTarget::MessageColumn,
+            extent: before_message.message.right() + 100.0 - before_message.graph.right() - 4.0,
+        });
+        let after_message = crate::ui::layout::column_layout(
             &state,
-            crate::views::Layout::for_state(&state).center,
+            crate::ui::layout::Layout::for_state(&state).center,
         );
         assert!(
-            (after_graph.graph.right() - before_graph.graph.right() - 100.0).abs() < f32::EPSILON
-        );
-
-        state.drag = Some(ResizeTarget::MessageColumn);
-        let before_message = crate::views::graph::column_layout(
-            &state,
-            crate::views::Layout::for_state(&state).center,
-        );
-        state.drag_to(before_message.message.right() + 100.0, 0.0);
-        let after_message = crate::views::graph::column_layout(
-            &state,
-            crate::views::Layout::for_state(&state).center,
-        );
-        assert!(
-            (after_message.message.right() - before_message.message.right() - 100.0).abs()
-                < f32::EPSILON
+            (after_message.message.right() - before_message.message.right() - 100.0).abs() < 0.01
         );
 
         let settings_directory = tempfile::tempdir().expect("temporary settings directory");
@@ -5104,30 +4393,37 @@ mod tests {
         constrained.selected_commit = Some("selected".to_owned());
         constrained.ref_column_width = 100.0;
 
-        let table = crate::views::Layout::for_state(&constrained).center;
+        let table = crate::ui::layout::Layout::for_state(&constrained).center;
         assert!((table.width - 650.0).abs() < f32::EPSILON);
-        let before = crate::views::graph::column_layout(&constrained, table);
+        let before = crate::ui::layout::column_layout(&constrained, table);
         assert!((before.graph.width - 120.0).abs() < f32::EPSILON);
         assert!((before.message.width - 220.0).abs() < f32::EPSILON);
 
-        constrained.dispatch(UiAction::BeginResize(ResizeTarget::GraphColumn));
-        let dragging = crate::views::graph::column_layout(
+        // First live event pins preferences and arms the drag without moving.
+        constrained.dispatch(UiAction::ResizeTo {
+            target: ResizeTarget::GraphColumn,
+            extent: before.graph.right() - before.refs.right() - 4.0,
+        });
+        let dragging = crate::ui::layout::column_layout(
             &constrained,
-            crate::views::Layout::for_state(&constrained).center,
+            crate::ui::layout::Layout::for_state(&constrained).center,
         );
-        constrained.drag_to(dragging.graph.right() + 60.0, 0.0);
-        let after = crate::views::graph::column_layout(
+        constrained.dispatch(UiAction::ResizeTo {
+            target: ResizeTarget::GraphColumn,
+            extent: dragging.graph.right() + 60.0 - dragging.refs.right() - 4.0,
+        });
+        let after = crate::ui::layout::column_layout(
             &constrained,
-            crate::views::Layout::for_state(&constrained).center,
+            crate::ui::layout::Layout::for_state(&constrained).center,
         );
-        assert!((after.graph.right() - dragging.graph.right() - 60.0).abs() < f32::EPSILON);
+        assert!((after.graph.right() - dragging.graph.right() - 60.0).abs() < 0.01);
         assert!((80.0..220.0).contains(&after.message.width));
-        constrained.end_drag();
-        let resting = crate::views::graph::column_layout(
+        constrained.end_column_drag();
+        let resting = crate::ui::layout::column_layout(
             &constrained,
-            crate::views::Layout::for_state(&constrained).center,
+            crate::ui::layout::Layout::for_state(&constrained).center,
         );
-        assert!((resting.graph.right() - dragging.graph.right() - 60.0).abs() < f32::EPSILON);
+        assert!((resting.graph.right() - dragging.graph.right() - 60.0).abs() < 0.01);
         assert!((80.0..220.0).contains(&resting.message.width));
     }
 

@@ -5,7 +5,6 @@ mod graph;
 mod settings;
 mod term;
 mod ui;
-mod views;
 
 use anyhow::Result;
 use clap::{Parser, ValueEnum};

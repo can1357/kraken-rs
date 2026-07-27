@@ -147,29 +147,6 @@ impl GraphLayout {
         Self { rows, max_lanes }
     }
 
-    /// Returns the commit indices intersecting a scrolled viewport plus one guard row.
-    pub(crate) fn visible_range(
-        &self,
-        scroll: f32,
-        viewport_height: f32,
-        row_height: f32,
-    ) -> std::ops::Range<usize> {
-        if self.rows.is_empty() || row_height <= 0.0 {
-            return 0..0;
-        }
-        let start = (scroll.max(0.0) / row_height)
-            .floor()
-            .to_usize()
-            .unwrap_or(0)
-            .min(self.rows.len());
-        let visible = (viewport_height.max(0.0) / row_height)
-            .ceil()
-            .to_usize()
-            .unwrap_or(0)
-            .saturating_add(2);
-        start..start.saturating_add(visible).min(self.rows.len())
-    }
-
     /// Computes the final scroll offset, including rows outside the commit model.
     pub(crate) fn max_scroll(
         &self,
@@ -319,7 +296,7 @@ mod tests {
     }
 
     #[test]
-    fn viewport_never_lays_out_the_full_history() {
+    fn scroll_metrics_cover_full_history() {
         let commits = (0..10_000)
             .map(|index| {
                 let parent = (index + 1 < 10_000).then(|| (index + 1).to_string());
@@ -339,9 +316,6 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let layout = GraphLayout::build(&commits);
-        let visible = layout.visible_range(220_000.0, 900.0, 24.0);
-        assert!(visible.len() < 50);
-        assert!(visible.start > 9_000);
         assert_eq!(layout.max_lanes, 1);
         assert!((layout.max_scroll(900.0, 24.0, 2) - 239_148.0).abs() < f32::EPSILON);
     }

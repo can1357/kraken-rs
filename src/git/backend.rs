@@ -262,9 +262,8 @@ impl GitBackend {
         // only the index/workdir, so it runs on its own repository handle in
         // parallel with reference enumeration and the commit walk.
         std::thread::scope(|scope| {
-            let status = include_status.then(|| {
-                scope.spawn(|| -> Result<WorkingTree> { read_status(&self.open()?) })
-            });
+            let status = include_status
+                .then(|| scope.spawn(|| -> Result<WorkingTree> { read_status(&self.open()?) }));
             let mut repository = self.open()?;
             let refs_sig = refs_signature_of(&repository);
             let head = head_name(&repository);
@@ -2019,12 +2018,22 @@ fn file_content(
         DiffScope::Commit(id) => {
             let commit = find_commit(repository, id)?;
             let tree = commit.tree().context("load content tree")?;
-            Ok(tree_blob_content(repository, &tree, &request.path, encoding))
+            Ok(tree_blob_content(
+                repository,
+                &tree,
+                &request.path,
+                encoding,
+            ))
         }
         DiffScope::CommitRange { newest, .. } => {
             let commit = find_commit(repository, newest)?;
             let tree = commit.tree().context("load content tree")?;
-            Ok(tree_blob_content(repository, &tree, &request.path, encoding))
+            Ok(tree_blob_content(
+                repository,
+                &tree,
+                &request.path,
+                encoding,
+            ))
         }
     }
 }

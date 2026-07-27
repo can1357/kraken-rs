@@ -1,6 +1,6 @@
 # Kraken Native
 
-Kraken Native is a native, GPU-rendered Git desktop client written in Rust. It uses `winit` for windowing, `wgpu` for rendering, `glyphon` for text, and `libgit2` for repository operations; no browser or web view is embedded in the application shell.
+Kraken Native is a native Git desktop client whose UI is authored in Slab, solved by the shared Rust Slab kernel, and painted with `wgpu`; no browser or web view is embedded in the application shell.
 
 The project is under active development. Core local Git workflows are real repository operations, while the hosted-service surfaces listed under [Current boundaries](#current-boundaries) are not connected.
 
@@ -21,6 +21,7 @@ The project is under active development. Core local Git workflows are real repos
 ## Requirements
 
 - Rust 1.85 or newer (the crate uses Rust 2024 edition).
+- Network access on first build: the `slab-*` crates are fetched from `https://github.com/stencil-hq/slab.git`. No sibling checkout is required; see [Local Slab development](#local-slab-development) to build against one.
 - A desktop and graphics backend supported by `winit` and `wgpu`.
 - Git on `PATH` for CLI-backed features such as signed commits, Gitflow, sparse checkout, and Git LFS operations.
 - Optional: Git LFS and GPG for their respective workflows.
@@ -106,16 +107,34 @@ Check all targets without producing binaries:
 cargo check --all-targets
 ```
 
+### Local Slab development
+
+To compile against a live `../slab-lang` checkout instead of the pinned git dependency, create a gitignored `.cargo/config.toml`:
+
+```toml
+[patch."https://github.com/stencil-hq/slab.git"]
+slab-kernel = { path = "../slab-lang/crates/slab-kernel" }
+slab-fonts = { path = "../slab-lang/crates/slab-fonts" }
+slab-native = { path = "../slab-lang/crates/slab-native" }
+slab-slir = { path = "../slab-lang/crates/slab-slir" }
+slab-compile = { path = "../slab-lang/crates/slab-compile" }
+```
+
+Delete the file to build from GitHub again.
+
 ### Architecture
 
 | Path | Responsibility |
 |---|---|
-| `src/app/` | Event loop, application state, automation protocol, and AI worker |
+| `src/app/` | Event loop, application state, automation protocol, AI worker, command palette, and native menus |
 | `src/git/` | Repository models, `libgit2` backend, filesystem watching, and background Git worker |
 | `src/graph/` | Commit-lane layout and avatar loading |
-| `src/views/` | Immediate-mode construction of graph, WIP, diff, preferences, welcome, and terminal views |
-| `src/ui/` | Scene primitives, hit regions, widgets, geometry, actions, and theme |
-| `src/gpu/` | Windowed and offscreen `wgpu` renderers |
+| `ui/app.slab` | Authoritative shell, graph, WIP, detail, diff, preferences, welcome, and overlay UI |
+| `build.rs` | Slab compilation into typed Rust document bindings |
+| `src/ui/slab.rs` | `AppState` projection, authored signal routing, and interaction contract tests |
+| `src/ui/layout.rs` | Panel-rect and column/section layout math shared by slab constraints and state |
+| `src/ui/` | Slab integration plus retained actions, geometry, menu model, and text-field values |
+| `src/gpu/` | Windowed and offscreen `wgpu` renderers, including the Slab frame painter |
 | `src/term/` | PTY process management and terminal-grid parsing |
 | `src/settings.rs` | Platform-native TOML settings persistence |
 

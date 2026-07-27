@@ -9,13 +9,19 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use num_traits::ToPrimitive;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
+use slab_kernel::{
+    dispatch::{
+        E_KEY_DOWN, E_POINTER_DOWN, E_POINTER_MOVE, E_POINTER_UP, E_TEXT, E_WHEEL, Event, M_ALT,
+        M_CTRL, M_META, M_SHIFT,
+    },
+    flatten::{Frame, FrameOp, SceneNode},
+};
 
 use crate::{
-    app::state::{AppState, EditKey, EditKeyKind, FocusField},
+    app::state::{AppState, FocusField, MainView},
     gpu::offscreen::OffscreenRenderer,
-    ui::{Rect, Scene, Theme, action::UiAction},
-    views,
+    ui::action::UiAction,
 };
 
 const PROTOCOL_VERSION: &str = "1.0";
@@ -30,7 +36,6 @@ pub(crate) fn run(repo: Option<PathBuf>, width: u32, height: u32, port: u16) -> 
     let mut server = AutomationServer {
         state: AppState::new(repo, width, height, None),
         renderer: pollster::block_on(OffscreenRenderer::new())?,
-        theme: Theme::dark(),
     };
     server.refresh();
 
@@ -61,7 +66,6 @@ pub(crate) fn run(repo: Option<PathBuf>, width: u32, height: u32, port: u16) -> 
 struct AutomationServer {
     state: AppState,
     renderer: OffscreenRenderer,
-    theme: Theme,
 }
 
 #[derive(Debug, Deserialize)]
@@ -142,8 +146,13 @@ impl AutomationServer {
             }
             "App.waitForIdle" => self.wait_for_idle(params),
             "Page.getSnapshot" => {
-                let scene = self.refresh();
-                Ok(scene_snapshot(&scene))
+                self.refresh();
+                let frame = self.renderer.semantic_frame(&self.state);
+                Ok(frame_snapshot(
+                    &frame,
+                    self.renderer.scene_strings(),
+                    &|node| self.renderer.node_key(node),
+                ))
             }
             "Page.captureScreenshot" => self.capture_screenshot(params),
             "Page.setViewport" => self.set_viewport(params),
@@ -156,11 +165,27 @@ impl AutomationServer {
         }
     }
 
-    fn refresh(&mut self) -> Scene {
+    /// Drains background job results into state; the slab document solves on
+    /// demand whenever a frame or dispatch needs it.
+    fn refresh(&mut self) {
         self.state.process_events();
-        let scene = views::build_scene(&self.state, &self.theme);
-        self.state.adopt_scene(&scene);
-        scene
+    }
+
+    /// Routes one synthesized kernel event through the shared terminal-then-
+    /// root routing the window uses.
+    fn send_event(&mut self, event: &Event) {
+        self.renderer.dispatch(&mut self.state, event);
+    }
+
+    /// Semantic node under a viewport point in the freshly solved frame.
+    fn target_at(&mut self, point: [f32; 2]) -> Option<String> {
+        let frame = self.renderer.semantic_frame(&self.state);
+        node_under_point(
+            &frame,
+            self.renderer.scene_strings(),
+            &|node| self.renderer.node_key(node),
+            point,
+        )
     }
 
     fn wait_for_idle(&mut self, params: &Value) -> Result<Value> {
@@ -180,9 +205,8 @@ impl AutomationServer {
 
     fn capture_screenshot(&mut self, params: &Value) -> Result<Value> {
         let output = PathBuf::from(required_string(params, "path")?);
-        let scene = self.refresh();
-        self.renderer
-            .render_png(&scene, self.theme.window, &output)?;
+        self.refresh();
+        self.renderer.render_png(&self.state, &output)?;
         Ok(json!({
             "path": output,
             "width": self.state.width,
@@ -211,33 +235,46 @@ impl AutomationServer {
         let x = optional_f32(params, "x").unwrap_or(self.state.mouse[0]);
         let y = optional_f32(params, "y").unwrap_or(self.state.mouse[1]);
         self.apply_click_modifiers(params);
+        let modifiers = Modifiers::from_params(params);
         self.state.mouse = [x, y];
-        // Rebuild the scene with the pointer already at the event position so
-        // position-derived hit payloads match, exactly like the winit path
-        // (CursorMoved renders before the press arrives).
+        // Solve with the pointer already at the event position so the
+        // reported target matches what the press will hit, exactly like the
+        // winit path (CursorMoved renders before the press arrives).
         self.refresh();
-        let target = hit_at(&self.state, [x, y]);
+        let target = self.target_at([x, y]);
+        let button = match optional_string(params, "button").unwrap_or("left") {
+            "right" => 2,
+            _ => 0,
+        };
 
         match event_type {
             "mouseMoved" => {
-                if self.state.is_dragging() {
-                    self.state.drag_to(x, y);
-                }
+                let event = base_event(E_POINTER_MOVE, &self.state, modifiers);
+                self.send_event(&event);
             }
             "mousePressed" | "mouseClicked" => {
-                if optional_string(params, "button").unwrap_or("left") == "right" {
-                    self.state.right_click();
-                } else {
-                    self.state.click();
-                    if event_type == "mouseClicked" {
-                        self.state.end_drag();
-                    }
+                let mut down = base_event(E_POINTER_DOWN, &self.state, modifiers);
+                down.button = button;
+                down.clicks = optional_u64(params, "clickCount")
+                    .and_then(|count| u32::try_from(count).ok())
+                    .unwrap_or(1);
+                self.send_event(&down);
+                if event_type == "mouseClicked" {
+                    let mut up = base_event(E_POINTER_UP, &self.state, modifiers);
+                    up.button = button;
+                    self.send_event(&up);
                 }
             }
-            "mouseReleased" => self.state.end_drag(),
+            "mouseReleased" => {
+                let mut up = base_event(E_POINTER_UP, &self.state, modifiers);
+                up.button = button;
+                self.send_event(&up);
+            }
             "mouseWheel" => {
-                let delta_y = optional_f32(params, "deltaY").unwrap_or(0.0);
-                self.state.scroll(delta_y);
+                let mut wheel = base_event(E_WHEEL, &self.state, modifiers);
+                wheel.dx = f64::from(optional_f32(params, "deltaX").unwrap_or(0.0));
+                wheel.dy = f64::from(optional_f32(params, "deltaY").unwrap_or(0.0));
+                self.send_event(&wheel);
             }
             _ => bail!("unsupported mouse event type `{event_type}`"),
         }
@@ -250,14 +287,12 @@ impl AutomationServer {
     }
 
     fn insert_text(&mut self, params: &Value) -> Result<Value> {
-        let text = required_string(params, "text")?;
-        // Mirror the winit IME path: a focused terminal owns typed text.
-        if self.state.terminal_accepts_input() {
-            self.state
-                .terminal_input(text.replace('\n', "\r").as_bytes());
-        } else {
-            self.state.insert_text(text);
-        }
+        let text = required_string(params, "text")?.to_owned();
+        // The shared routing hands typed text to a focused terminal, exactly
+        // like the winit IME path.
+        let mut event = base_event(E_TEXT, &self.state, Modifiers::default());
+        event.text.clone_from(&text);
+        self.send_event(&event);
         self.refresh();
         Ok(json!({ "inserted": text }))
     }
@@ -266,14 +301,13 @@ impl AutomationServer {
         if optional_string(params, "type").is_some_and(|kind| kind == "keyUp") {
             return Ok(json!({ "ignored": "keyUp" }));
         }
-        let raw_key = required_string(params, "key")?;
+        let mut key = required_string(params, "key")?;
         let mut command = optional_bool(params, "command").unwrap_or(false);
         let mut shift = optional_bool(params, "shift").unwrap_or(false);
         let mut alt = optional_bool(params, "alt").unwrap_or(false);
         let mut control = optional_bool(params, "control").unwrap_or(false);
         // Accept "Alt+ArrowLeft"-style modifier prefixes so QA drivers can
         // express chords the transport schema has no flags for.
-        let mut key = raw_key;
         while let Some((prefix, rest)) = key.split_once('+') {
             if rest.is_empty() {
                 break;
@@ -288,61 +322,43 @@ impl AutomationServer {
             key = rest;
         }
         let primary = command || control;
-        // Terminal owns non-command keys, mirroring the winit routing.
-        if self.state.terminal_accepts_input() && !command {
-            let bytes: Option<&[u8]> = match key {
-                "Backspace" => Some(b"\x7f"),
-                "Enter" => Some(b"\r"),
-                "Tab" => Some(b"\t"),
-                "Escape" => Some(b"\x1b"),
-                "ArrowUp" => Some(b"\x1b[A"),
-                "ArrowDown" => Some(b"\x1b[B"),
-                "ArrowRight" => Some(b"\x1b[C"),
-                "ArrowLeft" => Some(b"\x1b[D"),
-                _ => None,
-            };
-            if let Some(bytes) = bytes {
-                self.state.terminal_input(bytes);
-            } else if key.chars().count() == 1 {
-                self.state.terminal_input(key.as_bytes());
-            } else if let Some(text) = optional_string(params, "text") {
-                self.state.terminal_input(text.as_bytes());
-            }
-            self.refresh();
-            return Ok(json!({ "key": key, "routed": "terminal" }));
-        }
-        let edit_kind = match key {
-            "ArrowLeft" => Some(EditKeyKind::Left),
-            "ArrowRight" => Some(EditKeyKind::Right),
-            "ArrowUp" => Some(EditKeyKind::Up),
-            "ArrowDown" => Some(EditKeyKind::Down),
-            "Home" => Some(EditKeyKind::Home),
-            "End" => Some(EditKeyKind::End),
-            "Backspace" => Some(EditKeyKind::Backspace),
-            "Delete" => Some(EditKeyKind::Delete),
-            _ if primary && key.chars().count() == 1 => key.chars().next().map(EditKeyKind::Char),
-            _ => None,
+        let modifiers = Modifiers {
+            shift,
+            alt,
+            control,
+            command,
         };
-        if let Some(kind) = edit_kind
-            && self.state.edit_key(EditKey {
-                kind,
-                shift,
-                alt,
-                command: primary,
+        // Primary clipboard chords never reach the kernel as key events,
+        // mirroring the winit routing; everything else goes kernel-first.
+        let shortcut = (primary && key.chars().count() == 1)
+            .then(|| {
+                key.chars()
+                    .next()
+                    .map(|character| character.to_ascii_lowercase())
             })
-        {
-            self.refresh();
-            return Ok(json!({ "key": raw_key, "routed": "text" }));
+            .flatten();
+        if !matches!(shortcut, Some('c' | 'x' | 'v')) {
+            let mut kernel = base_event(E_KEY_DOWN, &self.state, modifiers);
+            key.clone_into(&mut kernel.key);
+            self.send_event(&kernel);
+        }
+        // Plain printable keys insert text, mirroring the window's insertable
+        // path fed by winit's `event.text`.
+        if !primary && key.chars().count() == 1 {
+            let mut input = base_event(E_TEXT, &self.state, modifiers);
+            optional_string(params, "text")
+                .unwrap_or(key)
+                .clone_into(&mut input.text);
+            self.send_event(&input);
         }
         match key {
             "F1" => {
-                self.state.dispatch(
-                    if self.state.main_view == crate::app::state::MainView::Diff {
+                self.state
+                    .dispatch(if self.state.main_view == MainView::Diff {
                         UiAction::ToggleEditorPalette
                     } else {
                         UiAction::ToggleCommandPalette
-                    },
-                );
+                    });
             }
             "Enter" if self.state.focus == FocusField::Palette => self.state.enter(command),
             "ArrowUp" if self.state.focus == FocusField::Palette => {
@@ -369,62 +385,71 @@ impl AutomationServer {
                 self.state.dispatch(UiAction::NextDiffSearch);
             }
             key if command && shift && key.eq_ignore_ascii_case("p") => {
-                self.state.dispatch(
-                    if self.state.main_view == crate::app::state::MainView::Diff {
+                self.state
+                    .dispatch(if self.state.main_view == MainView::Diff {
                         UiAction::ToggleEditorPalette
                     } else {
                         UiAction::ToggleCommandPalette
-                    },
-                );
+                    });
             }
             key if command
                 && key.eq_ignore_ascii_case("c")
-                && self.state.main_view == crate::app::state::MainView::Diff =>
+                && self.state.main_view == MainView::Diff =>
             {
                 self.state.dispatch(UiAction::CopyDiffText);
             }
             key if command && key.eq_ignore_ascii_case("f") => {
-                self.state.dispatch(
-                    if self.state.main_view == crate::app::state::MainView::Diff {
+                self.state
+                    .dispatch(if self.state.main_view == MainView::Diff {
                         UiAction::ToggleDiffSearch
                     } else {
                         UiAction::ToggleSearch
-                    },
-                );
+                    });
             }
             "," if command => self.state.dispatch(UiAction::OpenPreferences),
             key if command && shift && key.eq_ignore_ascii_case("a") => {
                 self.state.dispatch(UiAction::ToggleTabSwitcher);
             }
-            _ => {
-                if let Some(text) = optional_string(params, "text") {
-                    self.state.insert_text(text);
-                } else if !command && key.chars().count() == 1 {
-                    self.state.insert_text(key);
-                }
-            }
+            _ => {}
         }
         self.refresh();
         Ok(json!({ "key": key }))
     }
 
     fn click(&mut self, params: &Value) -> Result<Value> {
-        let scene = self.refresh();
+        self.refresh();
+        let frame = self.renderer.semantic_frame(&self.state);
         let (point, target) = if let Some(selector) = optional_string(params, "selector") {
-            let (point, target) = find_target(&scene, selector)
-                .ok_or_else(|| anyhow!("no visible UI target matches `{selector}`"))?;
+            let (point, target) = find_frame_target(
+                &frame,
+                self.renderer.scene_strings(),
+                &|node| self.renderer.node_key(node),
+                selector,
+            )
+            .ok_or_else(|| anyhow!("no visible UI target matches `{selector}`"))?;
             (point, Some(target))
         } else {
             let point = [required_f32(params, "x")?, required_f32(params, "y")?];
-            let target = hit_at(&self.state, point);
+            let target = node_under_point(
+                &frame,
+                self.renderer.scene_strings(),
+                &|node| self.renderer.node_key(node),
+                point,
+            );
             (point, target)
         };
         self.apply_click_modifiers(params);
+        let modifiers = Modifiers::from_params(params);
         self.state.mouse = point;
-        self.state.click();
-        // A synthetic click is press + release; releasing settles any deferred
-        // ref click that the press turned into a potential drag.
-        self.state.end_drag();
+        // A synthetic click is hover + press + release, exactly the sequence
+        // the winit path produces for a real click.
+        let hover = base_event(E_POINTER_MOVE, &self.state, modifiers);
+        self.send_event(&hover);
+        let mut down = base_event(E_POINTER_DOWN, &self.state, modifiers);
+        down.clicks = 1;
+        self.send_event(&down);
+        let up = base_event(E_POINTER_UP, &self.state, modifiers);
+        self.send_event(&up);
         self.refresh();
         Ok(json!({
             "x": point[0],
@@ -473,114 +498,284 @@ impl AutomationServer {
                 "diff": self.state.diff_scroll,
                 "preferences": self.state.preferences_scroll,
             },
-            "hitTargetCount": self.state.hits.len(),
         })
     }
 }
 
-fn scene_snapshot(scene: &Scene) -> Value {
-    let text = scene
-        .layers
-        .iter()
-        .flat_map(|layer| layer.text.iter())
-        .map(|item| {
-            json!({
-                "text": item.text,
-                "origin": { "x": item.origin[0], "y": item.origin[1] },
-                "bounds": rect_value(item.bounds),
-                "size": item.size,
-                "lineHeight": item.line_height,
-                "font": format!("{:?}", item.face),
-            })
+/// Modifier booleans parsed from request params, mirroring the winit
+/// `ModifiersState` the windowed path tracks.
+#[derive(Clone, Copy, Default)]
+struct Modifiers {
+    shift: bool,
+    alt: bool,
+    control: bool,
+    command: bool,
+}
+
+impl Modifiers {
+    /// Reads the optional modifier flags carried by a transport request.
+    fn from_params(params: &Value) -> Self {
+        Self {
+            shift: optional_bool(params, "shift").unwrap_or(false),
+            alt: optional_bool(params, "alt").unwrap_or(false),
+            control: optional_bool(params, "control").unwrap_or(false),
+            command: optional_bool(params, "command").unwrap_or(false),
+        }
+    }
+
+    /// Packs the booleans into kernel modifier bits.
+    fn bits(self) -> u32 {
+        let mut bits = 0;
+        if self.shift {
+            bits |= M_SHIFT;
+        }
+        if self.alt {
+            bits |= M_ALT;
+        }
+        if self.control {
+            bits |= M_CTRL;
+        }
+        if self.command {
+            bits |= M_META;
+        }
+        bits
+    }
+}
+
+/// Mirrors the windowed `base_event`: pointer position from tracked state and
+/// modifier bits from the request-supplied booleans.
+fn base_event(etype: u32, state: &AppState, modifiers: Modifiers) -> Event {
+    Event {
+        etype,
+        x: f64::from(state.mouse[0]),
+        y: f64::from(state.mouse[1]),
+        dx: 0.0,
+        dy: 0.0,
+        button: 0,
+        clicks: 0,
+        key: String::new(),
+        text: String::new(),
+        mods: modifiers.bits(),
+    }
+}
+
+/// Resolves a scene-string reference; zero and out-of-range are absent.
+fn scene_str(scene_strs: &[String], index: u32) -> Option<&str> {
+    if index == 0 {
+        return None;
+    }
+    scene_strs
+        .get(usize::try_from(index).ok()?)
+        .map(String::as_str)
+        .filter(|value| !value.is_empty())
+}
+
+/// Whether a scene node occupies visible space.
+fn visible(node: &SceneNode) -> bool {
+    node.w > 0.0 && node.h > 0.0
+}
+
+/// Center of a scene node in viewport coordinates.
+fn node_center(node: &SceneNode) -> [f32; 2] {
+    [
+        (node.x + node.w * 0.5).to_f32().unwrap_or(0.0),
+        (node.y + node.h * 0.5).to_f32().unwrap_or(0.0),
+    ]
+}
+
+/// Whether a scene node's border box contains the point.
+fn node_contains(node: &SceneNode, x: f64, y: f64) -> bool {
+    x >= node.x && x < node.x + node.w && y >= node.y && y < node.y + node.h
+}
+
+/// Topmost visible labeled or keyed scene node containing `point`, formatted
+/// as its label when present, otherwise its authored key.
+fn node_under_point(
+    frame: &Frame,
+    scene_strs: &[String],
+    node_key: &impl Fn(u32) -> String,
+    point: [f32; 2],
+) -> Option<String> {
+    let x = f64::from(point[0]);
+    let y = f64::from(point[1]);
+    frame.scene.iter().rev().find_map(|node| {
+        if !visible(node) || !node_contains(node, x, y) {
+            return None;
+        }
+        if let Some(label) = scene_str(scene_strs, node.label) {
+            return Some(label.to_owned());
+        }
+        let key = node_key(node.node);
+        (!key.is_empty()).then_some(key)
+    })
+}
+
+/// Resolves a UI selector against the solved frame.
+///
+/// Precedence: case-insensitive exact label match, label substring,
+/// authored-key suffix, then visible text-run content substring (using the
+/// run's owning scene node for geometry). Only nodes with positive extent
+/// participate. Returns the target center and the matched label or key.
+fn find_frame_target(
+    frame: &Frame,
+    scene_strs: &[String],
+    node_key: &impl Fn(u32) -> String,
+    selector: &str,
+) -> Option<([f32; 2], String)> {
+    let needle = selector.to_lowercase();
+    let labeled = |exact: bool| {
+        frame.scene.iter().rev().find_map(|node| {
+            if !visible(node) {
+                return None;
+            }
+            let label = scene_str(scene_strs, node.label)?;
+            let lowered = label.to_lowercase();
+            let matched = if exact {
+                lowered == needle
+            } else {
+                lowered.contains(&needle)
+            };
+            matched.then(|| (node_center(node), label.to_owned()))
         })
-        .collect::<Vec<_>>();
-    let hits = scene
-        .hits
+    };
+    if let Some(target) = labeled(true) {
+        return Some(target);
+    }
+    if let Some(target) = labeled(false) {
+        return Some(target);
+    }
+    if let Some(target) = frame.scene.iter().rev().find_map(|node| {
+        if !visible(node) {
+            return None;
+        }
+        let key = node_key(node.node);
+        (!key.is_empty() && key.ends_with(selector)).then(|| (node_center(node), key))
+    }) {
+        return Some(target);
+    }
+    frame.ops.iter().rev().find_map(|op| {
+        let FrameOp::Text(text) = op else {
+            return None;
+        };
+        let content = frame.strings.get(usize::try_from(text.str_ref).ok()?)?;
+        if !content.to_lowercase().contains(&needle) {
+            return None;
+        }
+        let owner = frame
+            .scene
+            .iter()
+            .rev()
+            .find(|node| node.node == text.node && visible(node))?;
+        let target =
+            scene_str(scene_strs, owner.label).map_or_else(|| node_key(owner.node), str::to_owned);
+        Some((node_center(owner), target))
+    })
+}
+
+/// Builds the `Page.getSnapshot` payload from a solved frame: every scene
+/// node carrying accessibility semantics plus every visible text run.
+fn frame_snapshot(
+    frame: &Frame,
+    scene_strs: &[String],
+    node_key: &impl Fn(u32) -> String,
+) -> Value {
+    let nodes = frame
+        .scene
         .iter()
-        .map(|hit| {
-            json!({
-                "rect": rect_value(hit.rect),
-                "action": format!("{:?}", hit.action),
-                "cursor": format!("{:?}", hit.cursor),
-                "tooltip": hit.tooltip,
-            })
+        .filter(|node| visible(node) && is_semantic(node))
+        .map(|node| semantic_node_json(node, scene_strs, node_key))
+        .collect::<Vec<_>>();
+    let text = frame
+        .ops
+        .iter()
+        .filter_map(|op| {
+            let FrameOp::Text(text) = op else {
+                return None;
+            };
+            let content = frame.strings.get(usize::try_from(text.str_ref).ok()?)?;
+            if content.is_empty() {
+                return None;
+            }
+            Some(json!({
+                "text": content,
+                "x": text.x,
+                "y": text.y_baseline,
+                "size": text.size,
+            }))
         })
         .collect::<Vec<_>>();
     json!({
-        "viewport": { "width": scene.width, "height": scene.height },
+        "viewport": { "width": frame.width, "height": frame.height },
+        "nodes": nodes,
         "text": text,
-        "hits": hits,
     })
 }
 
-fn find_target(scene: &Scene, selector: &str) -> Option<([f32; 2], String)> {
-    let selector = selector.to_lowercase();
-    let direct = scene.hits.iter().rev().find(|hit| {
-        let action = format!("{:?}", hit.action).to_lowercase();
-        let tooltip = hit.tooltip.as_deref().unwrap_or_default().to_lowercase();
-        action == selector
-            || tooltip == selector
-            || action.contains(&selector)
-            || tooltip.contains(&selector)
-    });
-    if let Some(hit) = direct {
-        return Some((center(hit.rect), format!("{:?}", hit.action)));
+/// Whether a scene node carries any accessibility semantics worth reporting.
+fn is_semantic(node: &SceneNode) -> bool {
+    node.role != 0
+        || node.label != 0
+        || node.desc != 0
+        || node.checked != 0
+        || node.expanded != 0
+        || node.selected != 0
+        || node.disabled
+        || node.focused
+}
+
+/// Serializes one semantic scene node, omitting absent optional states.
+fn semantic_node_json(
+    node: &SceneNode,
+    scene_strs: &[String],
+    node_key: &impl Fn(u32) -> String,
+) -> Value {
+    let mut object = Map::new();
+    object.insert("key".to_owned(), json!(node_key(node.node)));
+    if let Some(role) = scene_str(scene_strs, node.role) {
+        object.insert("role".to_owned(), json!(role));
     }
-
-    scene
-        .layers
-        .iter()
-        .flat_map(|layer| layer.text.iter())
-        .find_map(|text| {
-            text.text
-                .to_lowercase()
-                .contains(&selector)
-                .then(|| {
-                    scene
-                        .hits
-                        .iter()
-                        .rev()
-                        .filter(|hit| !matches!(hit.action, UiAction::DismissOverlay))
-                        .filter(|hit| {
-                            hit.rect.intersection(text.bounds).is_some()
-                                || hit.rect.contains(text.origin)
-                        })
-                        .min_by(|left, right| {
-                            distance_squared(center(left.rect), text.origin)
-                                .total_cmp(&distance_squared(center(right.rect), text.origin))
-                        })
-                })
-                .flatten()
-                .map(|hit| (center(hit.rect), format!("{:?}", hit.action)))
-        })
+    if let Some(label) = scene_str(scene_strs, node.label) {
+        object.insert("label".to_owned(), json!(label));
+    }
+    if let Some(desc) = scene_str(scene_strs, node.desc) {
+        object.insert("desc".to_owned(), json!(desc));
+    }
+    object.insert(
+        "rect".to_owned(),
+        json!({ "x": node.x, "y": node.y, "width": node.w, "height": node.h }),
+    );
+    if let Some(checked) = tri_state(node.checked) {
+        object.insert("checked".to_owned(), checked);
+    }
+    if let Some(expanded) = tri_state(node.expanded) {
+        object.insert("expanded".to_owned(), expanded);
+    }
+    if let Some(selected) = tri_state(node.selected) {
+        object.insert("selected".to_owned(), selected);
+    }
+    if node.disabled {
+        object.insert("disabled".to_owned(), json!(true));
+    }
+    if node.focused {
+        object.insert("focused".to_owned(), json!(true));
+    }
+    if let Some(value) = node.value_now {
+        object.insert("valueNow".to_owned(), json!(value));
+    }
+    if let Some(value_text) = scene_str(scene_strs, node.value_text) {
+        object.insert("valueText".to_owned(), json!(value_text));
+    }
+    Value::Object(object)
 }
 
-fn hit_at(state: &AppState, point: [f32; 2]) -> Option<String> {
-    state
-        .hits
-        .iter()
-        .rev()
-        .find(|hit| hit.rect.contains(point))
-        .map(|hit| format!("{:?}", hit.action))
-}
-
-fn center(rect: Rect) -> [f32; 2] {
-    [rect.x + rect.width * 0.5, rect.y + rect.height * 0.5]
-}
-
-fn distance_squared(left: [f32; 2], right: [f32; 2]) -> f32 {
-    let x = left[0] - right[0];
-    let y = left[1] - right[1];
-    x.mul_add(x, y * y)
-}
-
-fn rect_value(rect: Rect) -> Value {
-    json!({
-        "x": rect.x,
-        "y": rect.y,
-        "width": rect.width,
-        "height": rect.height,
-    })
+/// Maps an optional kernel state: `0` absent, `1` false, `2` true, `3` mixed.
+fn tri_state(value: u32) -> Option<Value> {
+    match value {
+        1 => Some(json!(false)),
+        2 => Some(json!(true)),
+        3 => Some(json!("mixed")),
+        _ => None,
+    }
 }
 
 fn required_string<'a>(params: &'a Value, name: &str) -> Result<&'a str> {
@@ -620,67 +815,136 @@ fn optional_bool(params: &Value, name: &str) -> Option<bool> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
-    use crate::ui::{FontFace, action::CursorHint};
+    use crate::{
+        git::models::{
+            BranchInfo, ChangeKind, CommitSummary, RepoSnapshot, WorkingFile, WorkingTree,
+        },
+        ui::slab::{SlabDocument, generated},
+    };
 
-    fn assert_point(actual: [f32; 2], expected: [f32; 2]) {
-        assert!((actual[0] - expected[0]).abs() < f32::EPSILON);
-        assert!((actual[1] - expected[1]).abs() < f32::EPSILON);
+    fn workspace_state() -> AppState {
+        let mut state = AppState::new(None, 1_600, 1_000, None);
+        let path = PathBuf::from("/tmp/kraken-automation-test");
+        state.settings.sidebar_collapsed = false;
+        state.tabs[0].title = "kraken-automation-test".to_owned();
+        state.tabs[0].path = Some(path.clone());
+        state.snapshot = Some(RepoSnapshot {
+            path,
+            name: "kraken-automation-test".to_owned(),
+            head: "main".to_owned(),
+            head_id: Some("deadbeef".to_owned()),
+            branches: vec![BranchInfo {
+                name: "main".to_owned(),
+                target: "deadbeef".to_owned(),
+                current: true,
+                remote: false,
+                upstream: None,
+            }],
+            tags: Vec::new(),
+            stashes: Vec::new(),
+            worktrees: Vec::new(),
+            commits: vec![CommitSummary {
+                id: "deadbeef".to_owned(),
+                short_id: "deadbee".to_owned(),
+                subject: "Initial commit".to_owned(),
+                description: String::new(),
+                author: "Kraken".to_owned(),
+                email: "kraken@example.com".to_owned(),
+                authored_seconds: 0,
+                parents: Vec::new(),
+                is_local: false,
+                refs: Vec::new(),
+                branch_refs: Vec::new(),
+            }],
+            working: WorkingTree {
+                files: vec![WorkingFile {
+                    path: PathBuf::from("src/main.rs"),
+                    old_path: None,
+                    staged: None,
+                    unstaged: Some(ChangeKind::Modified),
+                }],
+            },
+            loaded_limit: 200,
+            has_more: false,
+            refs_sig: 0,
+        });
+        state
+    }
+
+    /// Solves one frame from a fresh document so finder and snapshot code
+    /// can be exercised without a GPU.
+    fn solved_frame(state: &AppState) -> (SlabDocument, Frame) {
+        let mut document = SlabDocument::new(generated::Doc::new());
+        let frame = document.frame(state);
+        (document, frame)
     }
 
     #[test]
-    fn semantic_target_prefers_the_topmost_action_match() {
-        let mut scene = Scene::new(800, 600);
-        scene.hit(
-            scene.viewport(),
-            UiAction::DismissOverlay,
-            CursorHint::Default,
-            None,
-        );
-        let search = Rect::new(680.0, 20.0, 90.0, 30.0);
-        scene.hit(
-            search,
-            UiAction::ToggleSearch,
-            CursorHint::Pointer,
-            Some("Search"),
-        );
+    fn selector_resolves_a_labeled_control() {
+        let state = workspace_state();
+        let (document, frame) = solved_frame(&state);
+        let inst = &document.doc.inst;
+        let key_of = |node: u32| slab_kernel::scene::key_of(&inst.doc, &inst.st.lists, node);
 
-        let (point, action) = find_target(&scene, "ToggleSearch").expect("search target");
+        let (point, target) =
+            find_frame_target(&frame, &inst.st.scene_strs, &key_of, "preferences")
+                .expect("selector resolves the Preferences button");
+        assert_eq!(target, "Preferences");
+        assert!(point[0] > 0.0 && point[1] > 0.0);
 
-        assert_point(point, [725.0, 35.0]);
-        assert_eq!(action, "ToggleSearch");
+        let under = node_under_point(&frame, &inst.st.scene_strs, &key_of, point)
+            .expect("the resolved center hits a semantic node");
+        assert!(!under.is_empty());
     }
 
     #[test]
-    fn semantic_target_maps_visible_text_to_its_control() {
-        let mut scene = Scene::new(800, 600);
-        scene.hit(
-            scene.viewport(),
-            UiAction::DismissOverlay,
-            CursorHint::Default,
-            None,
-        );
-        let control = Rect::new(100.0, 80.0, 120.0, 32.0);
-        scene.hit(
-            control,
-            UiAction::ToggleActionsMenu,
-            CursorHint::Pointer,
-            None,
-        );
-        let theme = Theme::dark();
-        scene.text(
-            "General",
-            [112.0, 100.0],
-            control,
-            theme.text,
-            12.0,
-            16.0,
-            FontFace::Sans,
-        );
+    fn selector_resolves_an_authored_key_suffix() {
+        let state = workspace_state();
+        let (document, frame) = solved_frame(&state);
+        let inst = &document.doc.inst;
+        let key_of = |node: u32| slab_kernel::scene::key_of(&inst.doc, &inst.st.lists, node);
 
-        let (point, action) = find_target(&scene, "general").expect("text target");
+        // The graph divider has no label; the finder must fall through the
+        // label stages to the authored-key suffix match.
+        let (point, target) =
+            find_frame_target(&frame, &inst.st.scene_strs, &key_of, "#graph-ref-divider")
+                .expect("selector resolves the keyed graph divider");
+        assert!(target.ends_with("#graph-ref-divider"));
+        assert!(point[0] > 0.0 && point[1] > 0.0);
+    }
 
-        assert_point(point, [160.0, 96.0]);
-        assert_eq!(action, "ToggleActionsMenu");
+    #[test]
+    fn snapshot_reports_labeled_nodes_and_text_runs() {
+        let state = workspace_state();
+        let (document, frame) = solved_frame(&state);
+        let inst = &document.doc.inst;
+        let key_of = |node: u32| slab_kernel::scene::key_of(&inst.doc, &inst.st.lists, node);
+
+        let snapshot = frame_snapshot(&frame, &inst.st.scene_strs, &key_of);
+
+        assert_eq!(snapshot["viewport"]["width"], json!(frame.width));
+        let nodes = snapshot["nodes"].as_array().expect("snapshot nodes array");
+        assert!(
+            nodes
+                .iter()
+                .any(|node| node["label"] == json!("Preferences")),
+            "snapshot lists the labeled Preferences control"
+        );
+        assert!(
+            nodes.iter().all(|node| node["rect"]["width"]
+                .as_f64()
+                .is_some_and(|width| width > 0.0)),
+            "semantic nodes carry positive extents"
+        );
+        let text = snapshot["text"].as_array().expect("snapshot text array");
+        assert!(
+            text.iter().any(|run| run["text"]
+                .as_str()
+                .is_some_and(|content| content.contains("Initial commit"))),
+            "snapshot lists the painted commit subject"
+        );
     }
 }

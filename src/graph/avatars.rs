@@ -23,6 +23,9 @@ const RETRY_COOLDOWN: Duration = Duration::from_secs(30);
 #[derive(Default)]
 struct AvatarStore {
     pixels: HashMap<String, Vec<u8>>,
+    pending_identicons: HashMap<String, Vec<u8>>,
+    versions: HashMap<String, u64>,
+    next_version: u64,
     queued: HashSet<String>,
     /// Keys whose last fetch failed, holding identicon pixels until the
     /// cooldown elapses and a surface requests them again.
@@ -65,13 +68,28 @@ pub(crate) fn request(email: &str) -> String {
 
 /// Returns RGBA pixels for an avatar, using a deterministic identicon while a fetch is pending.
 pub(crate) fn pixels(key: &str) -> Vec<u8> {
-    STORE
-        .lock()
-        .expect("avatar store lock")
-        .pixels
-        .get(key)
-        .cloned()
-        .unwrap_or_else(|| identicon(key))
+    versioned_pixels(key).1
+}
+
+/// Returns the current pixel revision and RGBA payload for one avatar.
+pub(crate) fn versioned_pixels(key: &str) -> (u64, Vec<u8>) {
+    let mut store = STORE.lock().expect("avatar store lock");
+    let pixels = if let Some(pixels) = store.pixels.get(key) {
+        pixels.clone()
+    } else {
+        store
+            .pending_identicons
+            .entry(key.to_owned())
+            .or_insert_with(|| identicon(key))
+            .clone()
+    };
+    let version = store.versions.get(key).copied().unwrap_or_else(|| {
+        store.next_version = store.next_version.wrapping_add(1);
+        let version = store.next_version;
+        store.versions.insert(key.to_owned(), version);
+        version
+    });
+    (version, pixels)
 }
 
 fn start_workers() -> Sender<Request> {
@@ -111,19 +129,27 @@ fn fetch(request: Request) {
             // drawing this key; the renderer re-reads pixels each frame.
             store.pixels.insert(request.key.clone(), pixels);
             store.retry_after.remove(&request.key);
+            store.pending_identicons.remove(&request.key);
         }
         None => {
             // Keep the identicon placeholder but allow a retry after the
             // cooldown instead of poisoning the store forever.
+            let placeholder = store
+                .pending_identicons
+                .remove(&request.key)
+                .unwrap_or_else(|| identicon(&request.key));
             store
                 .pixels
                 .entry(request.key.clone())
-                .or_insert_with(|| identicon(&request.key));
+                .or_insert(placeholder);
             store
                 .retry_after
                 .insert(request.key.clone(), Instant::now() + RETRY_COOLDOWN);
         }
     }
+    store.next_version = store.next_version.wrapping_add(1);
+    let version = store.next_version;
+    store.versions.insert(request.key.clone(), version);
     store.queued.remove(&request.key);
     drop(store);
     if let Some(proxy) = EVENT_LOOP_PROXY.lock().expect("avatar proxy lock").as_ref() {

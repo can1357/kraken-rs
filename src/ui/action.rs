@@ -6,8 +6,6 @@ use crate::git::models::{DiffLineSelection, DiffScope};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ResizeTarget {
     Sidebar,
-    /// Boundary after a sidebar data section (local through stashes).
-    SidebarSection(u8),
     DetailPanel,
     RefColumn,
     GraphColumn,
@@ -16,22 +14,6 @@ pub(crate) enum ResizeTarget {
     /// Bottom edge of the commit-detail message block.
     DetailMessage,
 }
-/// Identifies a scrollable surface for scrollbar interactions.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ScrollTarget {
-    Graph,
-    SidebarLocal,
-    SidebarRemote,
-    SidebarWorktrees,
-    SidebarStashes,
-    SidebarTags,
-    Detail,
-    WipUnstaged,
-    WipStaged,
-    Diff,
-    Preferences,
-}
-
 /// Which list a right-clicked file row belongs to; drives context-menu items.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum FileContextScope {
@@ -50,6 +32,27 @@ pub(crate) enum AddRemoteProvider {
     GitHub,
     /// `owner/repo` slug resolved against a self-hosted Gitea instance.
     Gitea,
+}
+
+/// Application edit buffer synchronized from a Slab-native field signal.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum TextFieldTarget {
+    CommitSummary,
+    CommitBody,
+    Search,
+    DiffSearch,
+    BranchFilter,
+    TabFilter,
+    WelcomeSearch,
+    CloneUrl,
+    AddRemoteName,
+    AddRemoteUrl,
+    AddRemotePushUrl,
+    AddRemoteRepo,
+    AddRemoteHost,
+    Palette,
+    Preference(String),
+    OverlayField(u8),
 }
 
 /// Semantic actions emitted by hit-tested UI regions.
@@ -101,6 +104,10 @@ pub(crate) enum UiAction {
     CopyDiffLines(Vec<String>),
     CopyDiffText,
     BeginDiffSelection(usize),
+    /// Selects one Slab-native diff row without arming the legacy drag model.
+    SelectDiffRow(usize),
+    /// Opens the existing line-selection menu for a context-clicked diff row.
+    OpenDiffSelection(usize),
     BeginDiffTextSelection {
         row: usize,
         side: u8,
@@ -181,6 +188,13 @@ pub(crate) enum UiAction {
     TagContextDelete,
     /// Copies the right-clicked tag name to the clipboard.
     TagContextCopyName,
+    /// Opens the existing ref-drop operation menu for a Slab-native drop.
+    OpenDropMenu {
+        source: String,
+        source_tag: bool,
+        target: String,
+        target_tag: bool,
+    },
     /// Drop-menu: merges the dragged ref into the drop target (target is HEAD).
     DropMerge,
     /// Drop-menu: rebases the dragged branch onto the drop target.
@@ -233,6 +247,7 @@ pub(crate) enum UiAction {
     CloneRepository,
     OpenExternalUrl(String),
     ToggleNotifications,
+    SetShowAgents(bool),
     OpenPreferences,
     ExitPreferences,
     SelectPreferencePage(String),
@@ -249,6 +264,7 @@ pub(crate) enum UiAction {
     ApplySparseCheckout,
     DisableSparseCheckout,
     AddLfsPattern,
+    RemoveLfsPattern(String),
     OpenExternalEditor,
     OpenExternalTerminal,
     TogglePathTree,
@@ -264,34 +280,19 @@ pub(crate) enum UiAction {
     /// Scrolls the diff canvas so the given row lands near the top (minimap jump).
     SeekDiffRow(usize),
     ToggleFileHistory,
-    BeginResize(ResizeTarget),
+    /// Commits the full value emitted by a Slab-owned text editor.
+    SetText {
+        target: TextFieldTarget,
+        text: String,
+    },
+    /// Persists the final extent emitted by a Slab divider.
+    ResizeTo {
+        target: ResizeTarget,
+        extent: f32,
+    },
+    /// Restores a Slab divider to its application default.
+    ResetResize(ResizeTarget),
     JumpToCommit(String),
-    /// Jumps a scroll surface to the content fraction under the pointer.
-    ScrollbarJump(ScrollTarget),
-    /// Starts direct manipulation of a scrollbar thumb.
-    BeginScrollbarDrag(ScrollTarget),
-    /// Passive hover region revealing the full text of a truncated element.
-    RevealText,
     ShowAiStatus,
     DismissOverlay,
-}
-
-/// A cursor hint attached to a hit-tested region.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum CursorHint {
-    #[default]
-    Default,
-    Pointer,
-    ResizeHorizontal,
-    ResizeVertical,
-    Text,
-}
-
-/// A semantic UI hit target generated during immediate-mode layout.
-#[derive(Clone, Debug)]
-pub(crate) struct HitRegion {
-    pub(crate) rect: super::geometry::Rect,
-    pub(crate) action: UiAction,
-    pub(crate) cursor: CursorHint,
-    pub(crate) tooltip: Option<String>,
 }

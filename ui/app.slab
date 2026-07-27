@@ -1,0 +1,2056 @@
+// Kraken's complete native interface. Rust supplies state through params and
+// typed lists; Slab owns layout, paint, responsive behavior, and hit geometry.
+tokens {
+  color {
+    window       #070707
+    topbar       #040404
+    panel        #0C0C0C
+    panelAlt     #111111
+    surface      #181818
+    hover        #111111
+    selected     #222222
+    border       #222222
+    borderStrong #303030
+    borderHard   #464646
+    text         #E5E5E5
+    muted        #A3A3A3
+    dim          #737373
+    disabled     #525252
+    accent       #EDEDED
+    accentHover  #FFFFFF
+    accentActive #D4D4D4
+    accentSoft   #222222
+    onAccent     #0A0A0A
+    green        #4CB782
+    greenSoft    #0E2A1E
+    orange       #F7A550
+    orangeSoft   #34260F
+    red          #EB5757
+    redSoft      #3A1618
+    yellow       #DEC450
+    yellowSoft   #383112
+    purple       #A878F5
+    purpleSoft   #2A2146
+    cyan         #40BACD
+    blue         #6A82E8
+    input        #050505
+    scrim        #000000B8
+    transparent  #00000000
+  }
+  text {
+    ui      { family "Instrument Sans"; size 12; weight 450; color #E5E5E5 }
+    small   { family "Instrument Sans"; size 10; weight 500; color #A3A3A3 }
+    label   { family "Instrument Sans"; size 10; weight 600; color #A3A3A3 }
+    heading { family "Instrument Sans"; size 16; weight 600; color #E5E5E5 }
+    title   { family "Instrument Sans"; size 20; weight 600; color #E5E5E5 }
+    mono    { family "JetBrainsMono Nerd Font Mono"; size 11; weight 450; color #E5E5E5 }
+  }
+  shadow {
+    menu 0,12,36,#000000AA
+    modal 0,24,80,#000000CC
+  }
+}
+
+params {
+  show_preferences bool = false
+  show_welcome bool = false
+  show_workspace bool = true
+  show_graph bool = true
+  show_diff bool = false
+  show_terminal bool = false
+  show_detail bool = true
+  show_wip_detail bool = false
+  show_commit_detail bool = true
+  show_multi_detail bool = false
+  sidebar_collapsed bool = false
+  sidebar_width num = 254
+  detail_width num = 710
+  terminal_height num = 260
+  sidebar_min num = 44
+  sidebar_max num = 510
+  detail_min num = 200
+  detail_max num = 1080
+  terminal_min num = 64
+  terminal_max num = 900
+  ref_width num = 106
+  graph_width num = 112
+  message_width num = 330
+  date_width num = 165
+  sha_width num = 82
+  ref_resize_width num = 102
+  graph_resize_width num = 108
+  message_resize_width num = 326
+  ref_resize_max num = 276
+  graph_resize_max num = 316
+  message_resize_max num = 4000
+
+  repo_name text = "kraken-rs"
+  branch_name text = "main"
+  commit_count text = "0 commits loaded"
+  status_version text = "0.1.0"
+  status_commits text = "Opening repository"
+  graph_header_count text = "0"
+  selected_file_name text = ""
+  selected_file_encoding text = "UTF-8"
+  diff_scope text = "UNSTAGED"
+  diff_old_label text = "a/file"
+  diff_new_label text = "b/file"
+  diff_split bool = true
+  diff_file_view bool = false
+  diff_history bool = false
+  diff_search_open bool = false
+  diff_search text = ""
+  diff_search_count text = ""
+  diff_file_action_visible bool = false
+  diff_file_action_label text = "Stage File"
+  diff_has_rows bool = false
+  diff_show_labels bool = false
+  diff_empty_message text = "Loading file diff…"
+  diff_content_width num = 900
+
+  detail_title text = "Select a commit"
+  detail_body text = ""
+  detail_sha text = ""
+  detail_author text = ""
+  detail_email text = ""
+  detail_time text = ""
+  detail_loading bool = false
+  detail_avatar text = ""
+  detail_ai_label text = "Explain commit"
+  detail_message_height num = 150
+  detail_multi_height num = 210
+  detail_has_body bool = false
+  detail_has_conflicts bool = false
+  detail_selection_count text = ""
+  detail_selection_short text = ""
+  detail_overflow text = ""
+  detail_modified text = ""
+  detail_added text = ""
+  detail_range text = ""
+  view_all_files bool = false
+  path_tree bool = false
+
+  wip_title text = "Working Tree"
+  wip_subtitle text = "No file changes"
+  unstaged_count text = "0"
+  staged_count text = "0"
+  wip_stage_label text = "Stage All Changes"
+  wip_unstaged_empty bool = true
+  wip_staged_empty bool = true
+  commit_summary text = ""
+  commit_body text = ""
+  commit_amend bool = false
+  can_commit bool = false
+
+  wip_unstaged_height num = 100
+  wip_staged_height num = 100
+  search_open bool = false
+  search_text text = ""
+  search_count text = ""
+  branch_filter text = ""
+  branch_filter_focused bool = false
+  branch_filter_empty bool = true
+  sidebar_loading bool = false
+
+  welcome_search text = ""
+  clone_open bool = false
+  clone_url text = ""
+  clone_destination text = "Choose a destination"
+
+  preference_page text = "General"
+  preference_eyebrow text = "01 · GENERAL"
+  preference_repo text = "REPO: KRAKEN-RS"
+
+  overlay_open bool = false
+  branches_overlay bool = false
+  branch_rows_empty bool = false
+  overlay_modal bool = false
+  tabs_overlay bool = false
+  overlay_gravity_end bool = false
+  add_remote_push_url text = ""
+  notifications_overlay bool = false
+  tab_filter text = ""
+  overlay_has_target bool = false
+  overlay_fallback bool = false
+  overlay_target text = ""
+  overlay_title text = ""
+  overlay_subtitle text = ""
+  overlay_x num = 0
+  overlay_y num = 0
+  overlay_width num = 300
+  overlay_height num = 320
+  add_remote_is_url bool = true
+  add_remote_is_hosted bool = false
+  add_remote_is_gitea bool = false
+  add_remote_name text = ""
+  add_remote_url text = ""
+  add_remote_open bool = false
+  cannot_commit bool = false
+  add_remote_repo text = ""
+  add_remote_host text = ""
+  overlay_field_one text = ""
+  overlay_field_two text = ""
+  overlay_field_three text = ""
+  overlay_field_one_visible bool = false
+  overlay_field_two_visible bool = false
+  overlay_field_three_visible bool = false
+  overlay_primary_label text = "Done"
+  overlay_primary_visible bool = false
+  overlay_secondary_label text = "Cancel"
+  overlay_secondary_visible bool = false
+  overlay_footer_visible bool = false
+  palette_open bool = false
+  palette_editor bool = false
+  palette_query text = ""
+  palette_hint text = "Type a command"
+  toast_open bool = false
+  toast_text text = ""
+  error_open bool = false
+  error_text text = ""
+  ai_open bool = false
+  ai_loading bool = false
+  ai_text text = ""
+  pref_profiles list(ProfileItem) = []
+  preference_rows list(PreferenceItem) = []
+  pref_is_profiles_page bool = false
+  pref_is_not_profiles_page bool = true
+  diff_rows list(DiffItem) = []
+  diff_map list(DiffMapItem) = []
+  tabs list(TabItem) = []
+  sidebar_sections list(SidebarSection) = []
+  sidebar_rail list(SidebarRailEntry) = []
+  graph_rows list(GraphItem) = []
+  unstaged_files list(WipFileItem) = []
+  staged_files list(WipFileItem) = []
+  detail_files list(DetailFileItem) = []
+  detail_parents list(DetailParentItem) = []
+  detail_conflicts list(DetailConflictItem) = []
+  detail_commits list(DetailCommitItem) = []
+  recent_repos list(RecentRepoItem) = []
+  preference_nav list(PreferenceNavItem) = []
+  overlay_rows list(OverlayItem) = []
+  branch_rows list(BranchMenuRow) = []
+  palette_rows list(PaletteItem) = []
+}
+icon check viewbox=24 { path "M4 12l4 4 12-12" bg=none stroke=current stroke-w=3 }
+icon chevron_down viewbox=24 { path "M6 9l6 6 6-6" bg=none stroke=current stroke-w=2 }
+icon sparkle viewbox=24 { path "M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5Z" bg=current }
+icon folder viewbox=24 { path "M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" bg=current }
+icon file viewbox=24 { path "M6 2c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6H6zm7 7V3.5L18.5 9H13z" bg=current }
+
+icon undo viewbox=24 {
+  path "M3 7v6h6" bg=none stroke=current stroke-w=2
+  path "M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" bg=none stroke=current stroke-w=2
+}
+icon redo viewbox=24 {
+  path "M21 7v6h-6" bg=none stroke=current stroke-w=2
+  path "M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7" bg=none stroke=current stroke-w=2
+}
+icon cloud viewbox=24 {
+  path "M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" bg=none stroke=current stroke-w=2
+}
+icon terminal viewbox=24 {
+  path "M12 19h8" bg=none stroke=current stroke-w=2
+  path "m4 17 6-6-6-6" bg=none stroke=current stroke-w=2
+}
+icon menu viewbox=24 {
+  path "M4 5h16" bg=none stroke=current stroke-w=2
+  path "M4 12h16" bg=none stroke=current stroke-w=2
+  path "M4 19h16" bg=none stroke=current stroke-w=2
+}
+icon search viewbox=24 {
+  path "m21 21-4.34-4.34" bg=none stroke=current stroke-w=2
+  path "M 3, 11 a 8,8 0 1,0 16,0 a 8,8 0 1,0 -16,0" bg=none stroke=current stroke-w=2
+}
+icon bell viewbox=24 {
+  path "M10.268 21a2 2 0 0 0 3.464 0" bg=none stroke=current stroke-w=2
+  path "M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" bg=none stroke=current stroke-w=2
+}
+icon settings viewbox=24 {
+  path "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" bg=none stroke=current stroke-w=2
+  path "M 9, 12 a 3,3 0 1,0 6,0 a 3,3 0 1,0 -6,0" bg=none stroke=current stroke-w=2
+}
+icon plus viewbox=24 {
+  path "M5 12h14" bg=none stroke=current stroke-w=2
+  path "M12 5v14" bg=none stroke=current stroke-w=2
+}
+icon x viewbox=24 {
+  path "M18 6 6 18" bg=none stroke=current stroke-w=2
+  path "m6 6 12 12" bg=none stroke=current stroke-w=2
+}
+icon arrowdowntoline viewbox=24 {
+  path "M12 17V3" bg=none stroke=current stroke-w=2
+  path "m6 11 6 6 6-6" bg=none stroke=current stroke-w=2
+  path "M19 21H5" bg=none stroke=current stroke-w=2
+}
+icon arrowupfromline viewbox=24 {
+  path "m18 9-6-6-6-6" bg=none stroke=current stroke-w=2
+  path "M12 3v14" bg=none stroke=current stroke-w=2
+  path "M5 21h14" bg=none stroke=current stroke-w=2
+}
+icon gitbranch viewbox=24 {
+  path "M15 6a9 9 0 0 0-9 9V3" bg=none stroke=current stroke-w=2
+  path "M 15, 6 a 3,3 0 1,0 6,0 a 3,3 0 1,0 -6,0" bg=none stroke=current stroke-w=2
+  path "M 3, 18 a 3,3 0 1,0 6,0 a 3,3 0 1,0 -6,0" bg=none stroke=current stroke-w=2
+}
+icon archive viewbox=24 {
+  path "M 2,3 h 20 v 5 h -20 Z" bg=none stroke=current stroke-w=2
+  path "M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" bg=none stroke=current stroke-w=2
+  path "M10 12h4" bg=none stroke=current stroke-w=2
+}
+icon history viewbox=24 {
+  path "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" bg=none stroke=current stroke-w=2
+  path "M3 3v5h5" bg=none stroke=current stroke-w=2
+  path "M12 7v5l4 2" bg=none stroke=current stroke-w=2
+}
+icon users viewbox=24 {
+  path "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" bg=none stroke=current stroke-w=2
+  path "M16 3.128a4 4 0 0 1 0 7.744" bg=none stroke=current stroke-w=2
+  path "M22 21v-2a4 4 0 0 0-3-3.87" bg=none stroke=current stroke-w=2
+  path "M 5, 7 a 4,4 0 1,0 8,0 a 4,4 0 1,0 -8,0" bg=none stroke=current stroke-w=2
+}
+icon tags viewbox=24 {
+  path "M13.172 2a2 2 0 0 1 1.414.586l6.71 6.71a2.4 2.4 0 0 1 0 3.408l-4.592 4.592a2.4 2.4 0 0 1-3.408 0l-6.71-6.71A2 2 0 0 1 6 9.172V3a1 1 0 0 1 1-1z" bg=none stroke=current stroke-w=2
+  path "M2 7v6.172a2 2 0 0 0 .586 1.414l6.71 6.71a2.4 2.4 0 0 0 3.191.193" bg=none stroke=current stroke-w=2
+  path "M 10, 6.5 a 0.5,0.5 0 1,0 1,0 a 0.5,0.5 0 1,0 -1,0" bg=none stroke=current stroke-w=2
+}
+icon gitpullrequest viewbox=24 {
+  path "M 15, 18 a 3,3 0 1,0 6,0 a 3,3 0 1,0 -6,0" bg=none stroke=current stroke-w=2
+  path "M 3, 6 a 3,3 0 1,0 6,0 a 3,3 0 1,0 -6,0" bg=none stroke=current stroke-w=2
+  path "M13 6h3a2 2 0 0 1 2 2v7" bg=none stroke=current stroke-w=2
+  path "M 6 9 L 6 21" bg=none stroke=current stroke-w=2
+}
+icon globe viewbox=24 {
+  path "M 3,12 a 9,9 0 1,0 18,0 a 9,9 0 1,0 -18,0" bg=none stroke=current stroke-w=2
+  path "M3 12h18" bg=none stroke=current stroke-w=2
+  path "M12 3a15.3 15.3 0 0 1 4 9 15.3 15.3 0 0 1-4 9 15.3 15.3 0 0 1-4-9 15.3 15.3 0 0 1 4-9z" bg=none stroke=current stroke-w=2
+}
+icon circle_dot viewbox=24 {
+  path "M 4,12 a 8,8 0 1,0 16,0 a 8,8 0 1,0 -16,0" bg=none stroke=current stroke-w=2
+  path "M 10.5,12 a 1.5,1.5 0 1,0 3,0 a 1.5,1.5 0 1,0 -3,0" bg=current
+}
+icon submodule viewbox=24 {
+  path "M4 4h9v9H4z" bg=none stroke=current stroke-w=2
+  path "M13 13h7v7h-7z" bg=none stroke=current stroke-w=2
+}
+icon box viewbox=24 {
+  path "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" bg=none stroke=current stroke-w=2
+  path "m3.3 7 8.7 5 8.7-5" bg=none stroke=current stroke-w=2
+  path "M12 22V12" bg=none stroke=current stroke-w=2
+}
+icon chevronleft viewbox=24 {
+  path "m15 18-6-6 6-6" bg=none stroke=current stroke-w=2
+}
+icon chevronup viewbox=24 {
+  path "m6 15 6-6 6 6" bg=none stroke=current stroke-w=2
+}
+icon chevronright viewbox=24 {
+  path "m9 18 6-6-6-6" bg=none stroke=current stroke-w=2
+}
+icon folder_open viewbox=24 {
+  path "M3 6h7l2 2h9l-2 11H5Z" bg=none stroke=current stroke-w=2
+  path "M3 6v13" bg=none stroke=current stroke-w=2
+}
+icon file_code viewbox=24 {
+  path "M6 2h8l4 4v16H6Z" bg=none stroke=current stroke-w=2
+  path "M14 2v5h5" bg=none stroke=current stroke-w=2
+  path "m10 12-2 2 2 2" bg=none stroke=current stroke-w=2
+  path "m14 12 2 2-2 2" bg=none stroke=current stroke-w=2
+}
+icon unified viewbox=24 {
+  path "M5 6h14" bg=none stroke=current stroke-w=2
+  path "M5 12h14" bg=none stroke=current stroke-w=2
+  path "M5 18h14" bg=none stroke=current stroke-w=2
+}
+icon split viewbox=24 {
+  path "M3 4h8v16H3Z" bg=none stroke=current stroke-w=2
+  path "M13 4h8v16h-8Z" bg=none stroke=current stroke-w=2
+}
+icon warning viewbox=24 {
+  path "M12 3 22 20H2Z" bg=none stroke=current stroke-w=2
+  path "M12 9v5" bg=none stroke=current stroke-w=2
+  path "M12 17v1" bg=none stroke=current stroke-w=2
+}
+
+// ---------- shared controls ----------
+def IconButton(icon, action, tip="") {
+  stack w=30 h=30 radius=4 act=action focusable role="button" label=tip {
+    when hover { bg=color.hover }
+    when pressed { bg=color.selected }
+    when focus-visible { stroke=color.borderHard stroke-w=1 }
+    icon icon size=14 color=color.muted self=center
+  }
+}
+
+def TextButton(label, action) {
+  row w=hug h=28 pad=5,10 radius=4 stroke=color.borderStrong stroke-w=1 act=action align=center role="button" label=label {
+    when hover { bg=color.hover; stroke=color.borderHard }
+    when pressed { bg=color.selected }
+    text label style=text.ui nowrap
+  }
+}
+
+def PrimaryButton(label, action) {
+  row w=fill h=34 pad=6,12 radius=4 stroke=color.green stroke-w=1 act=action align=center pack=center role="button" label=label {
+    when hover { bg=color.greenSoft }
+    when pressed { opacity=0.78 }
+    text label style=text.ui color=color.green nowrap
+  }
+}
+
+def Checkbox(checked=false, action="noop", label="Toggle") {
+  stack w=16 h=16 radius=3 bg=color.input stroke=color.borderHard stroke-w=1 act=action focusable role="checkbox" label=label checked=checked {
+    when checked { bg=color.accent; stroke=color.accent }
+    when hover { stroke=color.muted }
+    icon check size=12 color=color.onAccent self=center {
+      when !checked { opacity=0 }
+    }
+  }
+}
+
+def Field(value, placeholder, focus_action, change_action) {
+  row w=fill h=30 pad=6,9 radius=4 bg=color.input stroke=color.borderStrong stroke-w=1 press=focus_action align=center clip role="textbox" label=placeholder {
+    when hover { stroke=color.borderHard }
+    stack w=fill h=fill {
+      text placeholder style=text.ui color=color.dim nowrap ellipsis opacity=0
+      text value style=text.ui w=fill h=fill nowrap ellipsis field=change_action
+    }
+  }
+}
+
+def SubmitField(value, placeholder, focus_action, change_action, submit_action) {
+  row w=fill h=30 pad=6,9 radius=4 bg=color.input stroke=color.borderStrong stroke-w=1 press=focus_action align=center clip role="textbox" label=placeholder {
+    when hover { stroke=color.borderHard }
+    stack w=fill h=fill {
+      text placeholder style=text.ui color=color.dim nowrap ellipsis opacity=0
+      text value style=text.ui w=fill h=fill nowrap ellipsis field=change_action submit=submit_action
+    }
+  }
+}
+
+def MultilineField(value, placeholder, focus_action, change_action) {
+  row w=fill h=fill pad=6,9 radius=4 bg=color.input stroke=color.borderStrong stroke-w=1 press=focus_action clip role="textbox" label=placeholder {
+    when hover { stroke=color.borderHard }
+    stack w=fill h=fill {
+      text placeholder style=text.ui color=color.dim w=fill opacity=0
+      text value style=text.ui w=fill h=fill field=change_action multiline
+    }
+  }
+}
+
+def SectionRule() { rect h=1 bg=color.border }
+
+// Nerd Font codicon glyph (same codepoints as the pre-slab chrome, see
+// src/ui/icons.rs at HEAD). Preferred over hand-drawn `icon` paths for
+// application chrome; pass the literal glyph string.
+def Codicon(glyph="", size=14, tone=#A3A3A3) export {
+  text glyph family="JetBrainsMono Nerd Font Mono" size=size weight=400 color=tone nowrap
+}
+
+// ---------- shell ----------
+// Toolbar/status icon button: codicon glyph centered in a hover pill.
+// Glyph tone lifts from muted to text on hover via color inheritance,
+// matching the pre-slab toolbar_action treatment.
+def CodiconButton(glyph, action, tip="", bw=34, gsize=16) {
+  stack w=bw h=30 radius=4 act=action focusable role="button" label=tip color=color.muted {
+    when hover { bg=color.hover; color=color.text }
+    when pressed { bg=color.selected }
+    when focus-visible { stroke=color.borderHard stroke-w=1 }
+    text glyph family="JetBrainsMono Nerd Font Mono" size=gsize weight=400 self=center nowrap
+  }
+}
+
+def TabItem(label="Repository", active=false, glyph="") export {
+  stack w=180 h=44 act=select-tab role="tab" label=label {
+    stack w=176 h=33 self=top offset=0,5 radius=4 color=color.muted {
+      when hover { bg=color.hover }
+      when active { bg=color.transparent; color=color.text }
+      row w=fill h=fill pad=0,2,0,10 gap=8 align=center {
+        text glyph family="JetBrainsMono Nerd Font Mono" size=13 nowrap
+        text label family="Instrument Sans" size=13 weight=500 w=fill nowrap ellipsis
+        stack w=22 h=24 radius=3 act=close-tab role="button" label="Close tab" {
+          when hover { bg=color.hover }
+          text "" family="JetBrainsMono Nerd Font Mono" size=15 color=color.muted self=center nowrap
+        }
+      }
+    }
+    when active {
+      rect w=160 h=2 self=bottom bg=color.accent
+    }
+  }
+}
+
+def TopBar() {
+  row#bar w=fill h=44 bg=color.topbar stroke=color.border stroke-w=1 stroke-sides=bottom align=center clip {
+    row w=90 h=44 gap=8 pad=0,14 align=center {
+      rect w=12 h=12 radius=99 bg=#FF5F56 act=window-close role="button" label="Close"
+      rect w=12 h=12 radius=99 bg=#FFBD2E act=window-minimize role="button" label="Minimize"
+      rect w=12 h=12 radius=99 bg=#27C93F act=window-maximize role="button" label="Maximize"
+    }
+    row h=44 w=hug gap=2 clip { each param.tabs #tabs }
+    spacer w=4
+    stack w=28 h=28 radius=3 act=new-tab role="button" label="New tab" {
+      when hover { bg=color.hover }
+      text "" family="JetBrainsMono Nerd Font Mono" size=18 color=color.dim self=center nowrap
+    }
+    spacer w=12
+    row w=60 h=30 radius=4 pad=0,11 gap=6 align=center act=toggle-actions role="button" label="PRs" color=color.muted {
+      when hover { bg=color.hover; color=color.text }
+      text "" family="JetBrainsMono Nerd Font Mono" size=11 nowrap
+      text "PRs" family="Instrument Sans" size=11 weight=450 nowrap
+    }
+    rect#window-drag-region w=fill h=44 bg=color.transparent press=window-drag label="Window drag region"
+    row h=44 align=center {
+      CodiconButton "" "undo" "Undo"
+      CodiconButton "" "redo" "Redo"
+      CodiconButton "" "pull" "Pull"
+      stack#pull-anchor w=12 h=30 act=toggle-pull-options role="button" label="Select pull operation" {
+        text "" family="JetBrainsMono Nerd Font Mono" size=11 color=color.muted self=center nowrap
+      }
+      CodiconButton "" "push" "Push"
+      CodiconButton "" "toggle-create-branch" "Branch"
+      CodiconButton "" "stash" "Stash"
+      CodiconButton "" "pop-stash" "Pop"
+      stack#lfs-anchor w=34 h=30 { CodiconButton "" "toggle-lfs-menu" "LFS" }
+      CodiconButton "" "open-terminal" "Terminal"
+    }
+    rect#window-drag-region-end w=fill h=44 bg=color.transparent press=window-drag label="Window drag region"
+    row h=44 gap=4 align=center {
+      stack#actions-anchor w=32 h=30 { CodiconButton "" "toggle-actions-menu" "Actions" bw=32 }
+      CodiconButton "" "toggle-search" "Search" bw=32
+      spacer w=16
+      stack#tabs-anchor w=32 h=30 { CodiconButton "" "toggle-tab-switcher" "Open tabs" bw=32 gsize=15 }
+      stack#notifications-anchor w=32 h=30 { CodiconButton "" "toggle-notifications" "Notifications" bw=32 gsize=15 }
+      CodiconButton "" "open-preferences" "Preferences" bw=32 gsize=15
+    }
+    spacer w=26
+  }
+}
+
+// One sidebar tree row: caret cell (folders), codicon glyph cell, label.
+// Geometry mirrors the pre-slab sidebar_row/sidebar_folder_row exactly:
+// 24u rows inset 6u; folder rows start at indent 8+12*depth with a 13u caret
+// cell, a 19u icon cell (11/12u glyphs) and the label 32u in; leaf rows start
+// at indent 10+12*depth with a 20u icon cell (13u glyph). Cell widths come
+// from Rust rather than `when folder` blocks because SLIR appends when-block
+// children AFTER the node's base children — structural whens here pushed the
+// icons to the row's right edge (and made them hostage to patch evaluation).
+def SidebarRow(caret="", icon="", label="", indent=0, caret_w=0, icon_w=20, gsize=13, selected=false, tone=#737373) export {
+  row w=fill h=24 pad=0,6 {
+    row w=fill h=24 radius=4 align=center clip act=sidebar-row context=sidebar-context role="treeitem" label=label {
+      when selected { bg=color.accentSoft }
+      when hover { bg=color.hover }
+      rect w=indent h=1
+      row w=caret_w h=fill align=center clip { Codicon glyph=caret size=11 tone=color.dim }
+      row w=icon_w h=fill align=center clip color=tone { Codicon glyph=icon size=gsize tone=tone }
+      text label family="Instrument Sans" size=13 weight=400 color=color.text w=fill nowrap ellipsis {
+        when selected { color=color.accent }
+      }
+      rect w=8 h=1
+    }
+  }
+}
+
+// One sidebar section: 28u header (10u caret, title at 24u, add-remote button
+// at right-58, count left-aligned at right-34 in a 30u cell — pre-slab
+// draw_sidebar_section_header) plus an independently scrolling content
+// viewport whose height Rust allocates from the pre-slab
+// sidebar_section_layouts distribution. The add-remote button keeps its 16u
+// slot but paints only under its own hover (pre-slab gated it on header
+// hover, so idle captures show no button).
+def SidebarSection(title="", count="", caret="", open=false, add_remote=false, body_height=0, rows=list(SidebarRow)) export {
+  col w=fill {
+    row w=fill h=28 pad=2,4 {
+      row w=fill h=fill radius=4 align=center act=sidebar-row role="button" label=title {
+        when hover { bg=color.hover }
+        rect w=6 h=1
+        row w=14 h=fill align=center { Codicon glyph=caret size=10 tone=color.dim }
+        text title family="Instrument Sans" size=11 weight=500 color=color.dim w=fill nowrap ellipsis
+        stack w=16 h=16 radius=3 clip act=open-add-remote role="button" label="Add remote" color=color.transparent {
+          when !add_remote { w=0; inert }
+          when hover { bg=color.hover; stroke=color.borderStrong; stroke-w=1; color=color.dim }
+          text "" family="JetBrainsMono Nerd Font Mono" size=10 self=center nowrap
+        }
+        rect w=8 h=1 { when !add_remote { w=0 } }
+        row w=30 h=fill align=center clip {
+          text count family="JetBrainsMono Nerd Font Mono" size=10 color=color.dim nowrap
+        }
+      }
+    }
+    when open {
+      col w=fill h=body_height scroll scrollbar=auto scrollbar-w=8 scrollbar-fg=#464646BF scrollbar-bg=color.transparent clip {
+        each rows virtual item-extent=24 overscan=4
+      }
+    }
+  }
+}
+
+// Collapsed-rail cell: 14u glyph at (8,7), count at (21,16) clipped to the
+// 32u cell, 4u gap below each cell — pre-slab build_sidebar_rail.
+def SidebarRailEntry(icon="", title="", count="", show_count=false) export {
+  col w=32 h=36 {
+    stack w=32 h=32 radius=4 clip act=expand-sidebar-section role="button" label=title {
+      when hover { bg=color.hover }
+      text icon family="JetBrainsMono Nerd Font Mono" size=14 weight=400 color=color.dim self=top-start offset=8,7 nowrap
+      when show_count {
+        text count family="JetBrainsMono Nerd Font Mono" size=8 color=color.muted self=top-start offset=21,16 nowrap
+      }
+    }
+  }
+}
+
+def Sidebar() {
+  row w=fill h=fill bg=color.panel {
+    when sidebar_collapsed {
+      col w=44 h=fill pad=12,6,0,6 gap=4 align=center {
+        stack w=26 h=26 radius=3 act=toggle-sidebar-collapse role="button" label="Expand sidebar" {
+          when hover { bg=color.hover }
+          text "" family="JetBrainsMono Nerd Font Mono" size=13 color=color.muted self=top-start offset=8,4 nowrap
+        }
+        rect h=4
+        each param.sidebar_rail #sidebar-rail
+      }
+    }
+    when !sidebar_collapsed {
+      col w=fill h=fill {
+        row h=38 pad=12,12,0,10 gap=8 align=center {
+          stack w=26 h=26 radius=3 act=toggle-sidebar-collapse role="button" label="Collapse sidebar" {
+            when hover { bg=color.hover }
+            text "" family="JetBrainsMono Nerd Font Mono" size=13 color=color.muted self=top-start offset=8,4 nowrap
+          }
+          row w=fill h=26 radius=4 bg=color.panelAlt pad=2 {
+            row w=50% h=fill radius=3 bg=color.surface stroke=color.borderStrong stroke-w=1 pad=0,0,0,32 gap=8 align=center act=show-list role="button" label="List" {
+              Codicon "" 11 color.text
+              text "List" family="Instrument Sans" size=11 color=color.text nowrap
+            }
+            row w=50% h=fill radius=3 pad=0,0,0,32 gap=8 align=center act=show-agents role="button" label="Agents" {
+              when hover { bg=color.hover }
+              Codicon "" 11 color.muted
+              text "Agents" family="Instrument Sans" size=11 color=color.muted nowrap
+            }
+          }
+        }
+        rect h=10
+        row h=18 pad=0,12 align=center {
+          text param.commit_count family="Instrument Sans" size=11 color=color.dim w=fill nowrap ellipsis
+        }
+        rect h=2
+        row h=28 pad=0,12 {
+          row w=fill h=28 pad=5,8 radius=4 bg=color.input stroke=color.borderStrong stroke-w=1 press=focus-branch-filter align=center clip role="textbox" label="Filter branches" {
+            when hover { stroke=color.borderHard }
+            stack w=fill h=fill {
+              when branch_filter_empty {
+                text "FILTER (󰘳+OPTION+F)" family="JetBrainsMono Nerd Font Mono" size=10 color=color.dim nowrap
+              }
+              text param.branch_filter family="JetBrainsMono Nerd Font Mono" size=10 color=color.text w=fill h=fill nowrap field=change-branch-filter
+            }
+            row w=12 h=fill align=center { Codicon "" 13 color.dim }
+          }
+        }
+        rect h=10
+        col#sidebar-list w=fill h=fill clip {
+          when sidebar_loading {
+            row h=44 pad=0,24 align=center {
+              text "Opening repo..." family="Instrument Sans" size=12 color=color.muted nowrap
+            }
+          }
+          each param.sidebar_sections #sidebar-sections
+        }
+      }
+    }
+  }
+}
+
+def StatusBar() {
+  row#statusbar w=fill h=22 self=bottom bg=color.window stroke=color.border stroke-w=1 stroke-sides=top align=center {
+    spacer w=6
+    row#branches-anchor w=hug h=20 radius=3 pad=0,6 gap=5 align=center act=toggle-branch-menu role="button" label="Switch branch" color=color.muted {
+      when hover { bg=color.hover; color=color.text }
+      text "" family="JetBrainsMono Nerd Font Mono" size=11 nowrap
+      text param.branch_name family="Instrument Sans" size=11 weight=450 nowrap
+    }
+    spacer w=6
+    text "•" family="Instrument Sans" size=11 color=color.dim nowrap
+    spacer w=6
+    text param.status_commits family="Instrument Sans" size=11 color=color.dim nowrap
+    spacer
+    Codicon "" 11 color.muted
+    spacer w=10
+    Codicon "" 11 color.muted
+    spacer w=10
+    Codicon "" 11 color.muted
+    spacer w=20
+    text "Support" family="Instrument Sans" size=11 weight=450 color=color.muted nowrap act=open-support role="button" label="Support"
+    spacer w=20
+    text param.status_version family="Instrument Sans" size=11 color=color.muted nowrap
+    spacer w=12
+  }
+}
+
+// ---------- graph ----------
+
+// Lane ink is painted into one clipped canvas per row. Solid strokes are
+// bucketed into ten palette slots (matching GRAPH_COLORS in src/ui/slab.rs);
+// arbitrary-tone solid and dashed ink use the extra/dashed slots.
+
+def GraphRefChip(label="", show_label=true, label_w=0, lead="", show_lead=false, lead_size=9.5, lead_tone=#737373, trail="", show_trail_icons=false, width=36, label_inset=false, lead_inset=false, tone=#EDEDED, hover_stroke=#EDEDED, border=#303030, chip_bg=#0C0C0C, passive=false) export {
+  // HEAD's draw_ref_chip paints hairline borders INSIDE the badge rect and
+  // clips every text run to badge.inset(2): the padded content box below is
+  // exactly that clip window (pad_r = 2), and the inner `clip` row cuts
+  // overflowing runs mid-glyph like HEAD's clipped scene text.
+  row key=chip w=width h=18 pad=2,5 radius=3 bg=chip_bg stroke=border stroke-w=1 stroke-align=inside \
+    act=graph-ref context=graph-ref-context drag=graph-ref-drag drop=graph-ref-drop \
+    role="button" label=label {
+    // Branch/+N/HEAD chips: text origin badge.x + 6, right clip badge - 2.
+    when label_inset { pad=2,2,2,6 }
+    // Tag/worktree ref chips: lead glyph at badge.x + 5, right clip badge - 2.
+    when lead_inset { pad=2,2,2,5 }
+    when hover { bg=color.panelAlt; stroke=hover_stroke; stroke-w=1.4 }
+    when dragging { opacity=0.72 }
+    when drop { bg=color.yellowSoft; stroke=color.yellow; stroke-w=1.6 }
+    // HEAD only wires actions/drag/drop on ref chips (draw_ref_chip gates on
+    // action/droppable); the +N / detached-HEAD / WIP / worktree chips are
+    // static ink. The `inert` flag drops the subtree from hit testing, so no
+    // hover/drag/drop/act ever fires on a passive chip.
+    when passive { inert }
+    // gap=0: the Rust-computed label_w box pins the trail icon column at
+    // HEAD's badge.x + 6 + chars*6.2 offset, and a longer label paints under
+    // the trail glyphs exactly like HEAD draws its icons over the label run.
+    row w=fill h=fill gap=0 align=center clip {
+      // Every content child is when-gated: when-block children append after
+      // the base children, so mixing a base label with a deferred lead would
+      // paint `main ✓` instead of HEAD's `✓ main`. All-deferred children
+      // splice in lexical order, keeping lead → label → trail.
+      when show_lead { text lead family="JetBrainsMono Nerd Font Mono" size=lead_size weight=400 color=lead_tone nowrap }
+      when show_label { text label w=label_w size=10.5 leading=1.15 color=tone nowrap }
+      when show_trail_icons { text trail family="JetBrainsMono Nerd Font Mono" size=9.5 weight=400 color=color.dim nowrap }
+    }
+  }
+}
+
+def GraphItem(lane_c0="", lane_c1="", lane_c2="", lane_c3="", lane_c4="", lane_c5="", lane_c6="", lane_c7="", lane_c8="", lane_c9="", lane_extra="", lane_extra_tone=#A878F5, lane_dashed="", lane_dashed_tone=#40BACD, refs=list(GraphRefChip), message_chips=list(GraphRefChip), subject="", description="", show_graph_label=false, graph_label="", date="", sha="", node_x=24, node_tone=#40BACD, band_mark=false, show_trail=true, trail_base_width=0, trail_lift_x=24, trail_lift_width=0, trail_shadow_x=24, trail_shadow_width=0, trail_end_x=24, trail_base_tone=#40BACD0D, trail_lift_tone=#40BACD0F, trail_end_tone=#40BACDE6, avatar="", avatar_visible=false, dot_visible=true, wip_node=false, worktree_node=false, selected=false, local=false, worktree_wip=false, matched=false, current_match=false, has_modified=false, modified_count="", has_added=false, added_count="", truncated=false) export {
+  stack w=fill h=26 bleed act=graph-row context=graph-row-context role="row" label=subject {
+    when local { bg=#4CB7820F }
+    when worktree_wip { bg=#A878F51A }
+    when selected { bg=color.selected }
+    row w=fill h=26 align=center bleed {
+      // pad t,r,b,l: HEAD starts chips at column.x + 7 but budgets each
+      // chip width against column right - 4, so the right gutter is 4.
+      row w=param.ref_width h=fill pad=4,4,4,7 gap=4 align=center clip {
+        each refs #graph-ref-chips
+      }
+      stack w=param.graph_width h=fill bleed {
+        when show_trail {
+          stack w=fill h=fill {
+            row w=fill h=fill align=center {
+              rect w=node_x h=1 bg=color.transparent
+              rect w=trail_base_width h=22 bg=trail_base_tone
+            }
+            row w=fill h=fill align=center {
+              rect w=trail_lift_x h=1 bg=color.transparent
+              rect w=trail_lift_width h=22 bg=trail_lift_tone
+            }
+            row w=fill h=fill align=center {
+              rect w=trail_shadow_x h=1 bg=color.transparent
+              rect w=trail_shadow_width h=22 bg=linear(90, #00000000 0%, #00000047 100%)
+            }
+            row w=fill h=fill align=center {
+              rect w=trail_lift_x h=1 bg=color.transparent
+              rect w=1 h=22 bg=#00000029
+            }
+            row w=fill h=fill align=center {
+              rect w=trail_end_x h=1 bg=color.transparent
+              rect w=2 h=22 bg=trail_end_tone
+            }
+          }
+        }
+        canvas key=lanes w=param.graph_width h=26 self=top-start clip {
+          path d=lane_c0 bg=none stroke=#40BACD stroke-w=1.5
+          path d=lane_c1 bg=none stroke=#6A82E8 stroke-w=1.5
+          path d=lane_c2 bg=none stroke=#9666F0 stroke-w=1.5
+          path d=lane_c3 bg=none stroke=#C45ADE stroke-w=1.5
+          path d=lane_c4 bg=none stroke=#EB5694 stroke-w=1.5
+          path d=lane_c5 bg=none stroke=#E85C55 stroke-w=1.5
+          path d=lane_c6 bg=none stroke=#F0AA36 stroke-w=1.5
+          path d=lane_c7 bg=none stroke=#DEC450 stroke-w=1.5
+          path d=lane_c8 bg=none stroke=#96D650 stroke-w=1.5
+          path d=lane_c9 bg=none stroke=#42D6A0 stroke-w=1.5
+          path d=lane_extra bg=none stroke=lane_extra_tone stroke-w=1.5
+          path d=lane_dashed bg=none stroke=lane_dashed_tone stroke-w=1.5 stroke-dash=5,4
+        }
+        row w=param.graph_width h=26 align=center {
+          rect w=node_x h=1 bg=color.transparent
+          stack w=20 h=20 offset=-10,0 {
+            when avatar_visible {
+              group w=20 h=20 pad=2 radius=99 bg=color.panel stroke=node_tone stroke-w=2 {
+                img avatar w=16 h=16 fit=cover radius=99
+              }
+            }
+            when dot_visible {
+              rect w=8 h=8 self=center radius=99 bg=node_tone
+            }
+            when wip_node {
+              rect w=20 h=20 radius=99 bg=color.transparent stroke=node_tone stroke-w=2 stroke-dash=3,3
+            }
+            when worktree_node {
+              rect w=12 h=12 self=center radius=3 bg=node_tone
+            }
+          }
+        }
+        when show_graph_label {
+          row w=param.graph_width h=26 pad=0,48 align=center clip {
+            text graph_label style=text.mono color=color.purple nowrap ellipsis
+          }
+        }
+      }
+      stack w=fill h=fill clip {
+        when hover {
+          bg=#111111
+          row w=param.message_width h=fill pad=0,6 align=center pack=end inert {
+            when !truncated { opacity=0 }
+            row w=hug h=18 pad=0,5 radius=3 bg=#111111 align=center {
+              when selected { bg=color.selected }
+              text "…" style=text.ui size=11.5 color=color.dim nowrap
+            }
+          }
+        }
+        when selected { bg=color.transparent }
+        when matched { bg=#DEC45012 }
+        when current_match { bg=#DEC45026 }
+        when band_mark {
+          row w=fill h=fill align=center {
+            // HEAD commit-row loop: rect at message_rect.x - 1, 3.5 wide,
+            // ROW_HEIGHT*0.72 = 18.72 tall, centered on the row, full-alpha
+            // node_color (views/graph.rs, "scene.rect(1, Rect::new(message_rect.x - 1.0, ...)").
+            rect w=3.5 h=18.72 offset=-1,0 bg=node_tone
+          }
+        }
+        row w=fill h=fill align=center {
+          row w=param.message_width h=fill pad=0,8 gap=7 align=center clip {
+            each message_chips #graph-message-chips
+            text subject style=text.ui size=11.5 color=color.muted nowrap {
+              when selected { color=color.accent }
+            }
+            text description style=text.small size=10.5 color=color.dim nowrap
+            when has_modified {
+              row h=fill gap=3 align=center {
+                Codicon "" 11.5 color.dim
+                text modified_count style=text.small size=11.5 color=color.dim nowrap
+              }
+            }
+            when has_added {
+              row h=fill gap=3 align=center {
+                Codicon "" 11.5 color.dim
+                text added_count style=text.small size=11.5 color=color.dim nowrap
+              }
+            }
+          }
+          row w=param.date_width h=fill pad=0,8 align=center clip {
+            text date style=text.mono size=10.5 color=color.dim nowrap
+          }
+          row w=param.sha_width h=fill pad=0,8 align=center clip {
+            text sha style=text.mono size=10.5 color=color.dim nowrap
+          }
+        }
+      }
+    }
+    when selected { rect w=2 h=fill self=start bg=color.accent }
+  }
+}
+
+def GraphView() {
+  col w=fill h=fill bg=color.window clip {
+    stack w=fill h=28 bg=color.panel stroke=color.border stroke-w=1 stroke-sides=bottom {
+      row w=fill h=fill align=center {
+        row w=param.ref_width h=fill pad=0,8 align=center clip {
+          text "BRANCH / TAG" style=text.label nowrap
+        }
+        row w=param.graph_width h=fill pad=0,8 align=center clip {
+          text "GRAPH" style=text.label nowrap
+        }
+        row w=param.message_width h=fill pad=0,8 align=center clip {
+          text "COMMIT MESSAGE" style=text.label nowrap
+        }
+        row w=param.date_width h=fill pad=0,9 align=center clip {
+          Codicon "" 12 color.dim
+        }
+        row w=param.sha_width h=fill pad=0,8 gap=8 align=center clip {
+          text "SHA" style=text.label nowrap
+          Codicon "" 11 color.dim
+        }
+      }
+      // HEAD build_header (views/graph.rs): the resize strip draws NOTHING
+      // idle — a 4px invisible hit strip at each column edge — and paints
+      // theme.accent over the strip only while hovered (or dragging). The
+      // spacer min/max mirror HEAD's drag clamps minus the 4px strip
+      // (ref 100/ref_cap, graph 60/320, message 80/table budget; maxima are
+      // published live from resize_preference). Each divider's remainder is
+      // nested so the kernel's drag budget frees everything to its right,
+      // like HEAD's resize_preference, instead of just the adjacent spacer.
+      row w=fill h=fill align=center {
+        rect w=param.ref_resize_width min-w=96 max-w=param.ref_resize_max h=1
+        divider#graph-ref-divider w=4 h=fill resize=resize-ref-column {
+          when hover { bg=color.accent }
+          when pressed { bg=color.accent }
+        }
+        row w=fill h=fill align=center {
+          rect w=param.graph_resize_width min-w=56 max-w=param.graph_resize_max h=1
+          divider#graph-lane-divider w=4 h=fill resize=resize-graph-column {
+            when hover { bg=color.accent }
+            when pressed { bg=color.accent }
+          }
+          row w=fill h=fill align=center {
+            rect w=param.message_resize_width min-w=76 max-w=param.message_resize_max h=1
+            divider#graph-message-divider w=4 h=fill resize=resize-message-column {
+              when hover { bg=color.accent }
+              when pressed { bg=color.accent }
+            }
+            spacer
+          }
+        }
+      }
+    }
+    stack w=fill h=fill {
+      col#graph-scroll w=fill h=fill scroll scrollbar=auto scrollbar-w=4 \
+        scrollbar-fg=color.borderHard scrollbar-bg=color.transparent clip {
+        each param.graph_rows #graph-rows virtual item-extent=26 overscan=4
+      }
+      when search_open {
+        row w=324 h=32 self=top-end offset=-8,8 pad=3,6 gap=5 radius=4 \
+          bg=color.panelAlt stroke=color.borderHard stroke-w=1 shadow=shadow.menu align=center {
+          SubmitField param.search_text "Search commits" "focus-search" "change-search" "submit-search"
+          text param.search_count style=text.mono size=9.5 color=color.dim nowrap
+          stack w=18 h=24 radius=3 act=previous-search focusable role="button" label="Previous result" {
+            when hover { bg=color.hover }
+            row w=fill h=fill align=center { Codicon "" 13 color.muted }
+          }
+          stack w=18 h=24 radius=3 act=next-search focusable role="button" label="Next result" {
+            when hover { bg=color.hover }
+            row w=fill h=fill align=center { Codicon "" 13 color.muted }
+          }
+          stack w=18 h=24 radius=3 act=close-search focusable role="button" label="Close search" {
+            when hover { bg=color.hover }
+            row w=fill h=fill align=center { Codicon "" 13 color.muted }
+          }
+        }
+      }
+    }
+  }
+}
+
+// ---------- WIP/detail ----------
+def WipFileItem(marker="M", path="file", selected=false, conflict=false, staged=false, kind_bg=#0E2A1E, kind_fg=#4CB782, open=false) export {
+  row w=fill h=24 pad=0,9 gap=7 align=center act=wip-file context=wip-file-context role="row" label=path {
+    when open { bg=color.selected }
+    when selected { bg=color.selected }
+    when hover { bg=color.hover }
+    Checkbox selected "toggle-file-selection" "Select file"
+    stack w=16 h=16 radius=2 bg=kind_bg align=center pack=center {
+      text marker style=text.mono size=10 color=kind_fg nowrap {
+        when conflict { color=color.red }
+      }
+    }
+    text path style=text.ui w=fill nowrap ellipsis {
+      when open { color=color.accent }
+      when selected { color=color.accent }
+    }
+    row h=24 align=center {
+      when !hover { opacity=0 }
+      when staged { TextButton "Unstage" "unstage-file" }
+      when !staged { TextButton "Stage File" "stage-file" }
+    }
+  }
+}
+
+def WipHeader(title, count, staged=false) {
+  row h=28 bg=color.panelAlt stroke=color.border stroke-w=1 stroke-sides=bottom pad=0,10 gap=6 align=center {
+    text title style=text.label color=color.text nowrap
+    text count style=text.small color=color.muted nowrap
+    spacer
+    when !staged {
+      row w=hug h=24 pad=4,9 radius=3 stroke=color.borderStrong stroke-w=1 act=stage-selection role="button" label=param.wip_stage_label {
+        when hover { bg=color.hover; stroke=color.borderHard }
+        when pressed { bg=color.selected }
+        text param.wip_stage_label style=text.small color=color.text nowrap
+      }
+    }
+    when staged {
+      row w=hug h=24 pad=4,9 radius=3 stroke=color.borderStrong stroke-w=1 act=unstage-all role="button" label="Unstage All" {
+        when hover { bg=color.hover; stroke=color.borderHard }
+        when pressed { bg=color.selected }
+        text "Unstage All" style=text.small color=color.text nowrap
+      }
+    }
+  }
+}
+
+def CommitForm() {
+  col w=fill h=274 bg=color.panel stroke=color.border stroke-w=1 stroke-sides=top clip {
+    row w=fill h=38 pad=12,9 gap=8 align=center {
+      Checkbox param.commit_amend "toggle-amend" "Amend previous commit"
+      text "Amend previous commit" style=text.ui color=color.text nowrap
+    }
+    col w=fill h=fill pad=0,13 {
+      col w=fill h=126 radius=4 bg=color.input stroke=color.borderStrong stroke-w=1 clip {
+        row w=fill h=34 align=center {
+          Field param.commit_summary "Commit summary" "focus-commit-summary" "change-commit-summary"
+          text "72" style=text.mono color=color.muted size=10
+          stack w=24 h=24 align=center pack=center act=show-ai {
+            when hover { bg=color.panelAlt radius=3 }
+            icon sparkle size=14 color=color.accent
+          }
+        }
+        SectionRule
+        MultilineField param.commit_body "Description" "focus-commit-body" "change-commit-body"
+      }
+      row w=fill h=40 pad=8,0 align=center {
+        row w=hug h=24 pad=4,8 gap=4 radius=4 stroke=color.borderStrong stroke-w=1 align=center act=toggle-commit-options {
+          when hover { bg=color.hover; stroke=color.borderHard }
+          text "Commit options" style=text.ui nowrap
+          icon chevron_down size=12 color=color.muted
+        }
+      }
+      when can_commit { PrimaryButton "Commit changes" "commit" }
+      when cannot_commit { PrimaryButton "Nothing to commit" "commit" }
+    }
+  }
+}
+
+def WipDetail() {
+  col w=param.detail_width h=fill bg=color.window stroke=color.border stroke-w=1 stroke-sides=left clip {
+    row h=68 pad=10,12 align=center {
+      col w=fill gap=5 {
+        row gap=7 align=center {
+          rect w=7 h=7 radius=99 bg=color.purple
+          text "WORKING TREE · LIVE" style=text.label color=color.purple nowrap
+        }
+        text param.wip_subtitle style=text.heading nowrap ellipsis
+      }
+      TextButton "PATH" "toggle-path-tree"
+      TextButton "TREE" "toggle-path-tree"
+    }
+    col w=fill h=fill gap=8 clip {
+      col w=fill h=param.wip_unstaged_height clip {
+        WipHeader "UNSTAGED FILES" param.unstaged_count false
+        col#unstaged-scroll w=fill h=fill scroll scrollbar=auto scrollbar-w=4 scrollbar-fg=color.borderHard scrollbar-bg=color.transparent clip {
+          when wip_unstaged_empty {
+            stack w=fill h=fill {
+              text "No unstaged files" style=text.ui color=color.muted nowrap self=center
+            }
+          }
+          each param.unstaged_files #unstaged-files virtual item-extent=24
+        }
+      }
+      col w=fill h=param.wip_staged_height clip {
+        WipHeader "STAGED FILES" param.staged_count true
+        col#staged-scroll w=fill h=fill scroll scrollbar=auto scrollbar-w=4 scrollbar-fg=color.borderHard scrollbar-bg=color.transparent clip {
+          when wip_staged_empty {
+            stack w=fill h=fill {
+              text "No staged files" style=text.ui color=color.muted nowrap self=center
+            }
+          }
+          each param.staged_files #staged-files virtual item-extent=24
+        }
+      }
+    }
+    CommitForm
+  }
+}
+
+// Plain right-aligned parent sha, matching HEAD's commit_detail: mono 11
+// accent text, clickable (JumpToCommit) with pointer cursor and no chip
+// background, border, or hover fill.
+def DetailParentItem(label="ROOT") export {
+  row key=parent-sha w=hug h=18 align=center act=detail-parent role="link" label=label {
+    text label style=text.mono color=color.accent nowrap
+  }
+}
+
+def DetailConflictItem(path="") export {
+  row key=conflict h=18 gap=6 align=center {
+    icon warning size=11 color=color.red
+    text path style=text.mono size=10 color=color.muted w=fill nowrap ellipsis
+  }
+}
+
+// HEAD's build_multi lists "sha  subject" as one monospace muted run with no
+// click affordance.
+def DetailCommitItem(sha="", subject="") export {
+  row key=selected-commit h=18 gap=8 align=center {
+    text sha style=text.mono color=color.muted nowrap
+    text subject style=text.mono color=color.muted w=fill nowrap ellipsis
+  }
+}
+
+def DetailFileItem(marker="", prefix="", name="", additions="", deletions="", indent=0, folder=false, changed=true, selected=false, marker_tone=#F7A550, marker_bg=#34260F, tooltip="") export {
+  stack key=detail-entry w=fill h=25 clip {
+    when selected { bg=color.selected }
+    when hover { bg=color.hover }
+    rect w=2 h=fill bg=color.accent self=start opacity=0 {
+      when selected { opacity=1 }
+    }
+    when folder {
+      row w=fill h=25 pad=0,12 gap=6 align=center role="treeitem" label=tooltip {
+        spacer w=indent
+        icon chevron_down size=11 color=color.muted
+        icon folder_open size=13 color=color.dim
+        text name style=text.ui color=color.text w=fill nowrap ellipsis
+      }
+    }
+    when !folder {
+      row w=fill h=25 pad=0,12 gap=6 align=center act=detail-file context=detail-file-context role="treeitem" label=tooltip {
+        spacer w=indent
+        stack w=16 h=16 {
+          rect w=16 h=16 radius=3 bg=marker_bg
+          icon file_code size=13 color=color.transparent self=center {
+            when !changed { color=color.dim }
+          }
+          text marker style=text.mono size=9 color=marker_tone self=center nowrap
+        }
+        text prefix style=text.mono size=11 color=color.dim nowrap
+        text name style=text.mono size=11 color=color.text w=fill nowrap ellipsis
+        text additions style=text.small color=color.green nowrap
+        text deletions style=text.small color=color.red nowrap
+      }
+    }
+  }
+}
+
+def DetailAiButton() {
+  row w=hug h=28 pad=5,9 gap=6 radius=4 stroke=color.purple stroke-w=1 act=show-ai role="button" label=param.detail_ai_label align=center {
+    when hover { bg=color.purpleSoft }
+    Codicon "" 12 color.purple
+    text param.detail_ai_label style=text.small color=color.text nowrap
+  }
+}
+
+// HEAD widgets: 120x26 segmented control, 60px halves; active half is the
+// segment inset by 2 (56x22) filled surface_3 (#181818) with border_strong
+// (#303030) stroke, radius RADIUS_MD-2 = 2; labels sans 11 muted/text.
+def DetailSegment(label, active=false) {
+  row w=56 h=22 radius=2 align=center pack=center act=toggle-path-tree role="tab" label=label {
+    when active { bg=color.surface; stroke=color.borderStrong stroke-w=1 }
+    when hover { bg=color.hover }
+    text label style=text.ui size=11 color=color.muted nowrap {
+      when active { color=color.text }
+    }
+  }
+}
+
+def DetailPathToggle() {
+  row w=120 h=26 pad=2 gap=4 radius=4 bg=color.panelAlt {
+    when path_tree {
+      DetailSegment "PATH" false
+      DetailSegment "TREE" true
+    }
+    when !path_tree {
+      DetailSegment "PATH" true
+      DetailSegment "TREE" false
+    }
+  }
+}
+
+// HEAD commit_detail stats: "N MODIFIED" sans 11 orange at x+16 in a 92px
+// slot, "+ N ADDED" green at x+96.
+def DetailStats() {
+  row w=hug h=26 gap=4 align=center {
+    text param.detail_modified style=text.ui size=11 color=color.orange nowrap w=92
+    text param.detail_added style=text.ui size=11 color=color.green nowrap
+  }
+}
+
+def CommitDetail() {
+  col w=param.detail_width h=fill bg=color.window stroke=color.border stroke-w=1 stroke-sides=left clip {
+    row h=40 pad=0,10 gap=8 align=center stroke=color.border stroke-w=1 stroke-sides=bottom {
+      row w=fill h=40 gap=5 align=center pack=center act=detail-current-commit role="link" label="Jump to commit in graph" clip {
+        text "COMMIT:" style=text.label color=color.dim nowrap
+        text param.detail_sha style=text.mono color=color.accent nowrap
+      }
+      DetailAiButton
+      IconButton "x" "close-detail" "Close commit details"
+    }
+    stack w=fill {
+      col w=fill {
+        col h=param.detail_message_height bg=color.panelAlt pad=15,16 gap=9 clip {
+          when detail_loading {
+            row h=30 gap=8 align=center {
+              icon history size=14 color=color.purple
+              text "Loading commit details…" style=text.ui color=color.muted nowrap
+            }
+          }
+          when !detail_loading {
+            col w=fill h=hug gap=9 {
+              text param.detail_title style=text.heading size=15 weight=500 w=fill max-h=54
+              when detail_has_body {
+                text param.detail_body style=text.ui size=13 color=color.muted w=fill max-h=188
+              }
+              when detail_has_conflicts {
+                col w=fill gap=5 {
+                  row h=18 gap=7 align=center {
+                    icon warning size=12 color=color.red
+                    text "CONFLICTS" style=text.label color=color.red nowrap
+                  }
+                  col w=fill gap=1 {
+                    each param.detail_conflicts #detail-conflicts
+                  }
+                }
+              }
+            }
+          }
+        }
+        // HEAD: the dark message block's bottom 14px is the DetailMessage
+        // resize strip; a single 1px border sits at its bottom edge and the
+        // grabber pill (60x2, theme.border) floats centered 6px into it.
+        divider h=14 resize=resize-detail-message bg=color.panelAlt stroke=color.border stroke-w=1 stroke-sides=bottom
+        row h=72 pad=0,16 gap=12 align=center {
+          group w=28 h=28 radius=99 stroke=#46464680 stroke-w=1 {
+            img param.detail_avatar w=28 h=28 radius=99 fit=cover
+          }
+          col w=fill h=fill pad=20,0,0,0 gap=2 clip {
+            text param.detail_author style=text.ui size=13 color=color.text nowrap ellipsis
+            text param.detail_email style=text.mono color=color.dim nowrap ellipsis
+            text param.detail_time style=text.ui size=11 color=color.dim nowrap
+          }
+          // HEAD commit_detail: "PARENT:" (sans 11 dim) pinned at
+          // rect.right()-150, parent shas (mono 11 accent) from
+          // rect.right()-94 on the author-name line; one 134px-wide column,
+          // single flow — no wrap container (it mis-sizes inside a hug row).
+          col w=134 h=fill pad=24,0,0,0 {
+            row w=fill h=18 gap=2 align=center {
+              text "PARENT:" style=text.ui size=11 color=color.dim nowrap w=54
+              each param.detail_parents #detail-parents
+            }
+          }
+        }
+      }
+      rect w=60 h=2 radius=1 bg=color.border self=bottom offset=0,-78 inert
+    }
+    // HEAD commit_detail: stats left at x+16, PATH|TREE toggle centered in
+    // the panel (not right-packed), "View all files" checkbox in a 110px
+    // block ending at rect.right()-10, label sans 14 theme.text.
+    stack w=fill h=38 {
+      row w=fill h=38 pad=0,10,0,16 gap=10 align=center {
+        DetailStats
+        spacer
+        row w=110 h=26 gap=12 align=center {
+          Checkbox param.view_all_files "toggle-view-all-files" "View all files"
+          text "View all files" style=text.ui size=14 color=color.text nowrap
+        }
+      }
+      group self=center {
+        DetailPathToggle
+      }
+    }
+    col#commit-detail-scroll w=fill h=fill scroll scrollbar=auto scrollbar-w=5 scrollbar-fg=color.borderHard scrollbar-bg=color.transparent clip {
+      each param.detail_files #commit-detail-files virtual item-extent=25 overscan=8
+    }
+  }
+}
+
+def MultiDetail() {
+  col w=param.detail_width h=fill bg=color.window stroke=color.border stroke-w=1 stroke-sides=left clip {
+    row h=40 pad=0,12 gap=8 align=center stroke=color.border stroke-w=1 stroke-sides=bottom {
+      text "COMMITS:" style=text.ui size=11 color=color.dim nowrap
+      text param.detail_selection_short style=text.mono color=color.accent nowrap
+      spacer
+      IconButton "x" "close-detail" "Clear commit selection"
+    }
+    // Fixed line boxes mirror build_multi's vertical rhythm: title 30,
+    // range 22, rows 18 each, overflow 18, pad 15/16.
+    col h=param.detail_multi_height bg=color.panelAlt pad=15,16 stroke=color.border stroke-w=1 stroke-sides=bottom clip {
+      text param.detail_selection_count style=text.heading size=15 weight=500 color=color.text w=fill h=30 nowrap
+      text param.detail_range style=text.mono size=12 color=color.accent w=fill h=22 nowrap ellipsis
+      col w=fill {
+        each param.detail_commits #multi-detail-commits
+      }
+      text param.detail_overflow style=text.ui size=11 color=color.dim h=18 nowrap
+    }
+    row h=38 pad=0,14 gap=10 align=center {
+      DetailStats
+      spacer
+      DetailPathToggle
+    }
+    col#multi-detail-scroll w=fill h=fill scroll scrollbar=auto scrollbar-w=5 scrollbar-fg=color.borderHard scrollbar-bg=color.transparent clip {
+      each param.detail_files #multi-detail-files virtual item-extent=25 overscan=8
+    }
+  }
+}
+
+// ---------- diff ----------
+def DiffTextRun(content="", tone=#E5E5E5) export {
+  span content color=tone size=11 weight=450 family="JetBrainsMono Nerd Font Mono" tracking=0
+}
+
+def DiffMark(x=0, width=0, tone=#00000000, current=false) export {
+  row key=mark w=fill h=20 align=center {
+    rect w=x h=1 bg=color.transparent
+    rect w=width h=16 radius=2 bg=tone {
+      when current { stroke=color.yellow stroke-w=1 }
+    }
+  }
+}
+
+def DiffHatch() {
+  canvas w=fill h=20 bg=#0A0A0A {
+    path "M-20 20L0 0M4 20L24 0M28 20L48 0M52 20L72 0M76 20L96 0M100 20L120 0M124 20L144 0M148 20L168 0M172 20L192 0M196 20L216 0M220 20L240 0M244 20L264 0M268 20L288 0M292 20L312 0M316 20L336 0M340 20L360 0M364 20L384 0M388 20L408 0M412 20L432 0M436 20L456 0M460 20L480 0M484 20L504 0M508 20L528 0M532 20L552 0M556 20L576 0M580 20L600 0M604 20L624 0M628 20L648 0M652 20L672 0M676 20L696 0M700 20L720 0M724 20L744 0M748 20L768 0M772 20L792 0M796 20L816 0M820 20L840 0M844 20L864 0M868 20L888 0M892 20L912 0M916 20L936 0M940 20L960 0M964 20L984 0M988 20L1008 0M1012 20L1032 0M1036 20L1056 0M1060 20L1080 0M1084 20L1104 0M1108 20L1128 0M1132 20L1152 0M1156 20L1176 0M1180 20L1200 0M1204 20L1224 0M1228 20L1248 0M1252 20L1272 0M1276 20L1296 0M1300 20L1320 0M1324 20L1344 0M1348 20L1368 0M1372 20L1392 0M1396 20L1416 0M1420 20L1440 0M1444 20L1464 0M1468 20L1488 0M1492 20L1512 0M1516 20L1536 0M1540 20L1560 0M1564 20L1584 0M1588 20L1608 0" bg=none stroke=#2B2B2B stroke-w=1
+  }
+}
+
+def DiffCode(runs=list(DiffTextRun), marks=list(DiffMark), press_action="begin-unified-diff-text-selection") {
+  stack w=fill h=20 clip press=press_action drag=diff-text-drag \
+    drag-update=diff-text-drag-update drag-end=diff-text-drag-end {
+    each marks key=marks
+    para w=hug h=20 pad=2,6 nowrap {
+      each runs key=runs
+    }
+  }
+}
+
+def DiffNumber(number="", number_tone=#737373, width=44, background=#0C0C0C) {
+  row w=width h=20 bg=background pad=2,5 align=center pack=end \
+    press=begin-diff-selection drag=diff-selection-drag \
+    drag-update=diff-selection-drag-update drag-end=diff-selection-drag-end {
+    text number style=text.mono size=10 color=number_tone nowrap
+  }
+}
+
+def DiffPane(number="", number_tone=#737373, pane_bg=#00000000, empty=false, runs=list(DiffTextRun), marks=list(DiffMark), press_action="begin-new-diff-text-selection") {
+  stack w=50% h=20 bg=pane_bg clip {
+    when empty { DiffHatch }
+    row w=fill h=20 {
+      DiffNumber number number_tone 44 color.panel
+      DiffCode runs marks press_action
+    }
+  }
+}
+
+def DiffItem(old_no="", new_no="", hunk_text="", prefix="", prefix_tone=#A3A3A3, old_tone=#737373, new_tone=#737373, old_bg=#00000000, new_bg=#00000000, unified_bg=#00000000, old_empty=false, new_empty=false, split=true, hunk=false, selected=false, old_runs=list(DiffTextRun), new_runs=list(DiffTextRun), unified_runs=list(DiffTextRun), old_marks=list(DiffMark), new_marks=list(DiffMark), unified_marks=list(DiffMark), interactive=true) export {
+  stack key=diff-entry w=param.diff_content_width h=20 act=diff-row context=diff-row-context role="row" label="Diff row" {
+    when !interactive { inert }
+    when old_empty { opacity=1 }
+    when new_empty { opacity=1 }
+    when hover { bg=#FFFFFF08 }
+    when selected { bg=color.selected }
+    when hunk {
+      row w=fill h=20 bg=color.panelAlt pad=2,9 align=center stroke=color.border stroke-w=1 stroke-sides=top,bottom {
+        text hunk_text style=text.mono size=10 color=color.purple nowrap ellipsis
+      }
+    }
+    when !hunk {
+      stack w=fill h=20 {
+        when split {
+          row w=fill h=20 {
+            DiffPane old_no old_tone old_bg old_empty old_runs old_marks "begin-old-diff-text-selection"
+            stack w=1 h=20 bg=color.borderStrong
+            DiffPane new_no new_tone new_bg new_empty new_runs new_marks "begin-new-diff-text-selection"
+          }
+        }
+        when !split {
+          row w=fill h=20 bg=unified_bg clip {
+            DiffNumber old_no old_tone 38 color.panel
+            DiffNumber new_no new_tone 38 color.panelAlt
+            row w=14 h=20 pad=2,3 align=center {
+              text prefix style=text.mono size=10 color=prefix_tone nowrap
+            }
+            DiffCode unified_runs unified_marks "begin-unified-diff-text-selection"
+          }
+        }
+      }
+    }
+    rect w=2 h=20 bg=color.accent self=start opacity=0 {
+      when selected { opacity=1 }
+    }
+    rect w=0 h=0 bg=old_bg inert
+    rect w=0 h=0 bg=new_bg inert
+    rect w=0 h=0 bg=old_tone inert
+    rect w=0 h=0 bg=new_tone inert
+  }
+}
+
+// HEAD views/diff.rs ghost_button (icon variant): 36x28 hunk-arrow button.
+// Muted codicon glyph, row_hover pill + text tone on hover, text_disabled
+// with no hover feedback while the file view is active (enabled =
+// !diff_file_view in build).
+def DiffHunkBtn(glyph="", action="noop", tip="") {
+  stack w=36 h=28 radius=3 act=action role="button" label=tip color=color.muted {
+    when hover { bg=color.hover; color=color.text }
+    when diff_file_view { bg=color.transparent; color=color.disabled }
+    text glyph family="JetBrainsMono Nerd Font Mono" size=13 weight=400 self=center nowrap
+  }
+}
+
+// Toolbar cluster shared by every diff scope, mirroring HEAD views/diff.rs
+// build: File/Diff segmented_tab pair in a panelAlt+border track at the
+// left; right side pins Blame/History ghost buttons (both enabled=false at
+// HEAD, sans 11 text_disabled), the hunk arrows, and the layout_icon_button
+// track ending 30px from the panel edge. Active tab/toggle = 2px-inset
+// surface_3 card with a border_strong outline (segmented_tab geometry).
+def DiffToolbarMain() {
+  row w=fill h=28 gap=8 align=center {
+    row w=hug h=28 radius=4 bg=color.panelAlt stroke=color.border stroke-w=1 {
+      stack w=67 h=28 pad=2 act=show-file-view role="tab" label="File View" {
+        row w=fill h=fill radius=2 pad=0,6 align=center {
+          when hover { bg=color.hover }
+          when diff_file_view { bg=color.surface; stroke=color.borderStrong stroke-w=1 }
+          text "File View" style=text.ui size=11 color=color.muted nowrap {
+            when diff_file_view { color=color.text }
+          }
+        }
+      }
+      stack w=75 h=28 pad=2 act=show-diff-view role="tab" label="Diff View" {
+        row w=fill h=fill radius=2 pad=0,6 align=center {
+          when hover { bg=color.hover }
+          when !diff_file_view { bg=color.surface; stroke=color.borderStrong stroke-w=1 }
+          text "Diff View" style=text.ui size=11 color=color.muted nowrap {
+            when !diff_file_view { color=color.text }
+          }
+        }
+      }
+    }
+    spacer
+    row w=hug h=28 {
+      row w=54 h=28 pad=0,8 align=center role="button" label="Blame is available after history indexing" {
+        text "Blame" style=text.ui size=11 color=color.disabled nowrap
+      }
+      row w=62 h=28 pad=0,8 align=center act=toggle-file-history role="button" label="File History" {
+        text "History" style=text.ui size=11 color=color.disabled nowrap
+      }
+    }
+    row w=hug h=28 {
+      DiffHunkBtn "" "previous-hunk" "Previous change"
+      DiffHunkBtn "" "next-hunk" "Next change"
+    }
+    row w=hug h=28 radius=4 bg=color.panelAlt stroke=color.border stroke-w=1 {
+      stack w=46 h=28 pad=2 act=toggle-diff-layout role="button" label="Unified diff layout" {
+        row w=fill h=fill radius=2 align=center pack=center color=color.muted {
+          when hover { bg=color.hover }
+          when !diff_split { bg=color.surface; stroke=color.borderStrong stroke-w=1; color=color.text }
+          text "" family="JetBrainsMono Nerd Font Mono" size=13 weight=400 nowrap
+        }
+      }
+      stack w=46 h=28 pad=2 act=toggle-diff-layout role="button" label="Split diff layout" {
+        row w=fill h=fill radius=2 align=center pack=center color=color.muted {
+          when hover { bg=color.hover }
+          when diff_split { bg=color.surface; stroke=color.borderStrong stroke-w=1; color=color.text }
+          text "" family="JetBrainsMono Nerd Font Mono" size=13 weight=400 nowrap
+        }
+      }
+    }
+    spacer w=12
+  }
+}
+
+
+def DiffMapItem(tone=#303030, extent=1, current=false) export {
+  stack w=fill h=extent bg=tone act=seek-diff-row role="button" label="Diff position" {
+    when hover { bg=color.text }
+    when current { rect w=2 h=extent bg=color.yellow self=end }
+  }
+}
+
+def DiffView() {
+  col w=fill h=fill bg=color.window clip {
+    col h=78 bg=color.panel stroke=color.border stroke-w=1 stroke-sides=bottom {
+      // HEAD build: plain mono 13 path at the left (no file-icon chip),
+      // "UTF-8" sans 11 text_muted sitting ~134px left of the close ghost
+      // when no stage/unstage action is shown (commit scope).
+      row h=40 pad=0,10 gap=8 align=center {
+        text param.selected_file_name style=text.mono size=13 color=color.text w=fill nowrap ellipsis
+        when diff_file_action_visible {
+          text param.selected_file_encoding style=text.ui size=11 color=color.muted nowrap
+          TextButton param.diff_file_action_label "stage-file"
+          IconButton "x" "close-diff" "Close diff"
+        }
+        when !diff_file_action_visible {
+          text param.selected_file_encoding style=text.ui size=11 color=color.muted nowrap
+          spacer w=118
+          IconButton "x" "close-diff" "Close diff"
+        }
+      }
+      row h=38 pad=0,10 gap=8 align=center {
+        // HEAD build: the accent scope chip (88x28, accent_soft fill,
+        // 35%-alpha accent border, uppercase 10px accent_active label +
+        // chevron) only exists for Staged/Unstaged scopes; commits get none.
+        when diff_file_action_visible {
+          row w=88 h=28 radius=3 bg=color.accentSoft stroke=#EDEDED59 stroke-w=1 pad=0,8 gap=5 align=center act=toggle-diff-scope role="button" label="Toggle staged and unstaged diff" {
+            text param.diff_scope style=text.small size=10 color=color.accentActive nowrap
+            Codicon "" 10 color.accentActive
+          }
+          DiffToolbarMain
+        }
+        when !diff_file_action_visible {
+          DiffToolbarMain
+        }
+      }
+    }
+    when diff_search_open {
+      row h=38 bg=color.panelAlt stroke=color.border stroke-w=1 stroke-sides=bottom pad=4,10 gap=7 align=center {
+        icon search size=13 color=color.muted
+        SubmitField param.diff_search "Search diff" "focus-diff-search" "change-diff-search" "submit-diff-search"
+        text param.diff_search_count style=text.small color=color.muted nowrap
+        IconButton "chevronleft" "previous-diff-search" "Previous match"
+        IconButton "chevronright" "next-diff-search" "Next match"
+        IconButton "x" "close-diff-search" "Close diff search"
+      }
+    }
+    when diff_show_labels {
+      row h=24 bg=color.panelAlt stroke=color.border stroke-w=1 stroke-sides=bottom {
+        when diff_file_view {
+          row w=fill pad=0,48 align=center clip {
+            text param.diff_new_label style=text.mono size=9 color=color.dim nowrap ellipsis
+          }
+        }
+        when !diff_file_view {
+          row w=fill h=fill {
+            when diff_split {
+              row w=50% pad=0,48 align=center clip {
+                text param.diff_old_label style=text.mono size=9 color=color.dim nowrap ellipsis
+              }
+              row w=50% pad=0,48 align=center clip {
+                text param.diff_new_label style=text.mono size=9 color=color.dim nowrap ellipsis
+              }
+            }
+            when !diff_split {
+              row w=fill pad=0,82 align=center clip {
+                text param.diff_new_label style=text.mono size=9 color=color.dim nowrap ellipsis
+              }
+            }
+          }
+        }
+      }
+    }
+    when diff_has_rows {
+      row w=fill h=fill {
+        col#diff-scroll w=fill h=fill scroll=both scrollbar=always scrollbar-w=6 scrollbar-fg=color.borderHard scrollbar-bg=color.panelAlt clip {
+          each param.diff_rows #diff-rows virtual item-extent=20 overscan=10
+        }
+        when !diff_file_view {
+          col#diff-minimap w=20 h=fill bg=color.panelAlt clip {
+            each param.diff_map #diff-map
+          }
+        }
+      }
+    }
+    when !diff_has_rows {
+      stack w=fill h=fill bg=color.input {
+        col w=hug max-w=420 gap=10 align=center self=center {
+          icon file_code size=24 color=color.dim
+          text param.diff_empty_message style=text.ui color=color.muted align-text=center
+        }
+      }
+    }
+  }
+}
+
+// ---------- terminal ----------
+
+def TerminalView() {
+  stack w=fill h=fill bg=color.window act=focus-terminal clip {
+    stack w=fill h=fill pad=12 {
+      stack w=fill h=fill bg=color.input stroke=color.border stroke-w=1 radius=5 pad=1 clip {
+        hole terminal w=fill h=fill clip
+      }
+    }
+  }
+}
+
+// ---------- welcome ----------
+def RecentRepoItem(name="Repository", path="", badge="") export {
+  row w=fill h=44 pad=7,10 gap=10 radius=4 act=open-recent-repo align=center {
+    when hover { bg=color.hover }
+    rect w=28 h=28 radius=4 bg=color.panelAlt stroke=color.borderStrong stroke-w=1
+    col w=fill gap=2 {
+      text name style=text.ui color=color.text nowrap ellipsis
+      text path style=text.small color=color.dim nowrap ellipsis
+    }
+    text badge style=text.small color=color.muted nowrap
+  }
+}
+
+def Welcome() {
+  row w=fill h=fill bg=color.window clip {
+    col w=fill h=fill pad=32,64 gap=16 clip {
+      text "Repositories" style=text.title w=fill nowrap
+      row gap=10 {
+        TextButton "📁 Open" "open-repository-picker"
+        TextButton "⇣ Clone" "toggle-clone"
+        TextButton "+ Create" "create-repository-picker"
+      }
+      Field param.welcome_search "Search repositories" "focus-welcome-search" "change-welcome-search"
+      text "Recent" style=text.small color=color.muted w=fill nowrap
+      col w=fill h=fill scroll scrollbar=auto scrollbar-w=4 clip {
+        each param.recent_repos #recent-repos virtual item-extent=44
+      }
+      when clone_open {
+        col w=fill h=146 bg=color.panel stroke=color.borderHard stroke-w=1 radius=6 pad=16 gap=12 {
+          text "Clone a repository" style=text.heading nowrap
+          SubmitField param.clone_url "Repository URL" "focus-clone-url" "change-clone-url" "submit-clone"
+          row gap=8 {
+            row w=fill {
+              TextButton param.clone_destination "pick-clone-destination"
+            }
+            PrimaryButton "Clone" "clone-repository"
+          }
+        }
+      }
+    }
+    rect w=1 h=fill bg=color.border
+    col w=400 h=fill pad=32,64 gap=16 clip {
+      text "Connect More Integrations" style=text.title w=fill nowrap
+      text "Speed up your workflow and reduce context switching with powerful integrations for pull requests,\nissues, CI/CD, and more." style=text.ui color=color.muted h=42 w=fill
+      row h=32 {
+        TextButton "Connect Integrations" "open-preferences"
+      }
+      rect h=16
+      text "Resources" style=text.small color=color.muted w=fill nowrap
+      TextButton "Intro Tutorials" "open-tutorial"
+      TextButton "Release Notes" "open-release-notes"
+      TextButton "Documentation ↗" "open-documentation"
+    }
+  }
+}
+
+// ---------- preferences ----------
+def PreferenceNavItem(label="General", header=false, selected=false, disabled=false, sub=false, page=false) export {
+  col w=fill h=hug {
+    when header {
+      rect w=fill h=18
+      row w=fill h=20 pad=0,14 align=center {
+        text label style=text.ui size=11 weight=500 color=color.dim w=fill nowrap ellipsis {
+          when disabled { color=color.disabled }
+        }
+      }
+    }
+    when sub {
+      row w=fill h=20 pad=0,16 align=center {
+        text label style=text.ui size=11 weight=400 color=color.dim w=fill nowrap ellipsis {
+          when disabled { color=color.disabled }
+        }
+      }
+    }
+    when page {
+      row w=fill h=26 pad=1,6 align=center act=select-preference-page role="tab" label=label {
+        row w=fill h=24 radius=4 pad=0,16 align=center {
+          when selected { bg=color.accentSoft }
+          when hover { bg=color.panelAlt }
+          text label style=text.ui size=13 color=color.muted w=fill nowrap ellipsis {
+            when selected { color=color.accent }
+            when disabled { color=color.disabled }
+          }
+        }
+      }
+    }
+  }
+}
+
+def PreferenceItem(label="", description="", disabled=false, is_toggle=false, checked=false, is_number=false, number_value="", is_field=false, field_value="", field_placeholder="", field_browse_label="", has_browse=false, is_button=false, button_label="") export {
+  col w=fill h=hug min-h=32 gap=4 {
+    when disabled { opacity=0.45 }
+    when is_toggle {
+      row w=fill h=32 gap=12 pad=0,2 radius=3 align=center act="preference-toggle" {
+        when hover { bg=color.panelAlt }
+        Checkbox checked "preference-toggle" label
+        text label style=text.ui size=14 weight=400 color=color.text nowrap
+      }
+    }
+    when is_number {
+      row w=fill h=36 align=center {
+        text label style=text.ui size=12 weight=400 color=color.muted w=250 nowrap
+        row w=160 h=28 bg=color.input stroke=color.borderStrong stroke-w=1 radius=4 align=center pad=0,2,0,0 gap=2 {
+          text number_value style=text.mono color=color.muted w=fill pad=6,8 nowrap
+          stack w=24 h=24 radius=4 bg=color.panelAlt stroke=color.borderStrong stroke-w=1 act="preference-dec" focusable role="button" label="Decrease" {
+            when hover { bg=color.surface; stroke=color.borderHard }
+            text "" family="JetBrainsMono Nerd Font Mono" size=13 weight=400 color=color.text self=center nowrap
+          }
+          stack w=24 h=24 radius=4 bg=color.panelAlt stroke=color.borderStrong stroke-w=1 act="preference-inc" focusable role="button" label="Increase" {
+            when hover { bg=color.surface; stroke=color.borderHard }
+            text "" family="JetBrainsMono Nerd Font Mono" size=13 weight=400 color=color.text self=center nowrap
+          }
+        }
+      }
+    }
+    when is_field {
+      row w=fill h=36 align=center {
+        text label style=text.ui size=12 weight=400 color=color.muted w=250 nowrap
+        row w=300 h=30 { Field field_value field_placeholder "focus-preference-field" "preference-field" }
+        when has_browse { spacer w=8; TextButton field_browse_label "preference-browse" }
+      }
+    }
+    when is_button {
+      row w=fill h=36 align=center {
+        text label style=text.ui size=12 weight=400 color=color.muted w=250 nowrap
+        row w=hug h=30 { TextButton button_label "preference-action" }
+      }
+    }
+    when description { text description style=text.small color=color.muted w=700 }
+  }
+}
+
+def ProfileItem(name="Default", author="", email="", selected=false) export {
+  row w=fill h=28 align=center pad=5,10 radius=4 stroke=color.borderStrong stroke-w=1 act="preference-select-profile" {
+    when hover { bg=color.hover; stroke=color.borderHard }
+    when selected { bg=color.selected }
+    text name style=text.ui color=color.text nowrap
+    text " · " style=text.ui color=color.muted nowrap
+    text author style=text.ui color=color.text nowrap
+    text " · " style=text.ui color=color.muted nowrap
+    text email style=text.ui color=color.text nowrap
+  }
+}
+
+def Preferences() {
+  col w=fill h=fill bg=color.window {
+    row h=46 bg=color.topbar stroke=color.border stroke-w=1 stroke-sides=bottom pad=0,14 align=center {
+      row w=142 h=29 radius=4 bg=color.panelAlt stroke=color.borderStrong stroke-w=1 gap=7 align=center pack=center act="exit-preferences" focusable role="button" label="‹ Exit Preferences" {
+        when hover { bg=color.surface; stroke=color.borderHard }
+        Codicon "" 13 color.text
+        text "Exit Preferences" style=text.ui size=13 weight=500 color=color.text nowrap
+      }
+      spacer
+      text "PREFERENCES" style=text.ui size=11 color=color.dim nowrap
+      spacer
+      rect w=142 h=1
+    }
+    row w=fill h=fill {
+      col w=250 h=fill bg=color.panel stroke=color.border stroke-w=1 stroke-sides=right pad=16,0,0,0 {
+        col w=fill pad=0,12,6,12 gap=8 {
+          row h=50 bg=color.panelAlt stroke=color.border stroke-w=1 radius=4 pad=10 gap=8 align=center {
+            rect w=30 h=30 radius=99 bg=color.green
+            col w=fill gap=1 { text "OSS" style=text.ui size=13 color=color.text nowrap; text "CURRENT PROFILE" style=text.small color=color.dim nowrap }
+            Codicon "" 12 color.muted
+          }
+          row h=36 bg=color.input stroke=color.border stroke-w=1 radius=4 pad=0,10 align=center {
+            text "ORGANIZATION" style=text.small color=color.dim w=75 nowrap
+            text "NA" style=text.ui size=11 color=color.muted w=fill nowrap
+            Codicon "" 12 color.muted
+          }
+        }
+        col w=fill h=fill scroll clip { each param.preference_nav #preference-nav }
+      }
+      col#preferences-scroll w=fill h=fill scroll scrollbar=auto scrollbar-w=5 scrollbar-fg=color.borderHard clip pad=25,42 gap=6 {
+        text param.preference_eyebrow style=text.ui size=11 color=color.accent nowrap
+        text param.preference_page style=text.title weight=700 nowrap
+        rect w=870 h=1 bg=color.border
+        col w=870 pad=12,0,0,0 gap=2 {
+          when pref_is_profiles_page {
+            col w=fill gap=32 {
+              TextButton "+ Add profile" "preference-action-add-profile"
+              col w=fill gap=4 { each param.pref_profiles #pref-profiles }
+              col w=fill gap=4 { each param.preference_rows #preference-rows-profiles }
+            }
+          }
+          when pref_is_not_profiles_page {
+            each param.preference_rows #preference-rows
+          }
+        }
+      }
+    }
+  }
+}
+
+// ---------- overlays ----------
+def OverlaySubmenuItem(label="", danger=false, disabled=false) export {
+  row w=fill h=31 pad=0,10 gap=8 align=center act=overlay-submenu-row {
+    when hover { bg=color.hover }
+    when disabled { opacity=0.35 }
+    text label style=text.ui color=color.text w=fill nowrap ellipsis {
+      when danger { color=color.red }
+    }
+  }
+}
+
+def OverlayItem(icon="", label="", detail="", selected=false, disabled=false, separator=false, not_separator=true, danger=false, checked=false, has_children=false, children=list(OverlaySubmenuItem)) export {
+  col w=fill h=hug {
+    when separator { rect h=1 bg=color.border }
+    when not_separator {
+      row w=fill h=31 pad=0,10 gap=8 align=center act=overlay-row {
+        when selected { bg=color.selected }
+        when hover { bg=color.hover }
+        when disabled { opacity=0.35 }
+        text icon style=text.mono color=color.muted w=15 nowrap
+        text label style=text.ui color=color.text w=fill nowrap ellipsis {
+          when danger { color=color.red }
+        }
+        text detail style=text.small color=color.muted nowrap
+        text "✓" style=text.mono color=color.text nowrap opacity=0 { when checked { opacity=1 } }
+      }
+    }
+    when has_children {
+      col w=fill h=hug pad=0,0,0,16 {
+        each children
+      }
+    }
+  }
+}
+
+def PaletteItem(icon="", label="", hint="", selected=false, disabled=false) export {
+  row w=fill h=38 pad=0,12 gap=9 align=center act=palette-row {
+    when selected { bg=color.selected }
+    when hover { bg=color.hover }
+    when disabled { opacity=0.35 }
+    text icon style=text.mono color=color.muted w=17 nowrap
+    text label style=text.ui color=color.text w=fill nowrap ellipsis
+    text hint style=text.small color=color.dim nowrap
+  }
+}
+
+// Branch dropdown 1:1 with HEAD build_branches() (src/views/overlays.rs):
+// 320x520 panel at (128,48) with 8px inset, 32px search well, dim BRANCHES
+// caption, then 28px rows (codicon + name; current row keeps the selected
+// fill even under hover).
+def BranchMenuRow(icon="", label="", current=false) export {
+  row w=fill h=28 pad=0,8 radius=3 align=center color=color.muted act=overlay-row {
+    when hover { bg=#111111; color=color.text }
+    when current { bg=color.selected; color=color.accent }
+    text icon family="JetBrainsMono Nerd Font Mono" size=12 weight=400 color=color.muted w=20 nowrap {
+      when current { color=color.accent }
+    }
+    text label family="Instrument Sans" size=13 weight=450 w=fill nowrap ellipsis
+  }
+}
+
+def BranchesOverlay() {
+  stack w=fill h=fill {
+    rect w=fill h=fill bg=color.transparent act=dismiss-overlay
+    col w=320 h=520 self=top-start offset=128,48 pad=8 bg=color.surface stroke=#30303080 stroke-w=1 radius=6 shadow=shadow.menu clip {
+      row w=fill h=32 pad=6,9 radius=4 bg=color.input stroke=color.borderStrong stroke-w=1 press=focus-branch-filter align=center clip role="textbox" label="Search branches" {
+        when hover { stroke=color.borderHard }
+        when branch_filter_focused { stroke=color.accent }
+        stack w=fill h=fill {
+          when branch_filter_empty {
+            text "Search branches" family="Instrument Sans" size=13 weight=450 color=color.dim nowrap
+          }
+          text param.branch_filter family="Instrument Sans" size=13 weight=450 color=color.text w=fill h=fill nowrap ellipsis field=change-branch-filter
+        }
+      }
+      rect w=fill h=12
+      row w=fill h=20 pad=2,8 {
+        text "BRANCHES" family="Instrument Sans" size=11 weight=450 color=color.dim nowrap
+      }
+      when branch_rows_empty {
+        row w=fill h=30 pad=0,8 align=center {
+          text "NO MATCHING BRANCHES" family="Instrument Sans" size=11 weight=450 color=color.dim nowrap
+        }
+      }
+      col w=fill h=fill scroll scrollbar=auto scrollbar-w=4 scrollbar-fg=color.borderHard clip {
+        each param.branch_rows #branch-menu-rows virtual item-extent=28 overscan=4
+      }
+    }
+  }
+}
+
+def GenericOverlay() {
+  stack w=fill h=fill {
+    rect w=fill h=fill bg=color.transparent act=dismiss-overlay {
+      when overlay_modal { bg=color.scrim }
+    }
+    col w=param.overlay_width h=param.overlay_height bg=color.surface stroke=color.borderHard stroke-w=1 radius=6 shadow=shadow.menu clip {
+      when overlay_has_target {
+        attach=param.overlay_target
+        collide=auto
+        gravity=below-start
+      }
+      when overlay_fallback {
+        self=top-start
+        offset=param.overlay_x,param.overlay_y
+      }
+      when overlay_modal { self=center; offset=0,0 }
+      row h=42 pad=0,12 align=center {
+        col w=fill gap=2 {
+          text param.overlay_title style=text.ui color=color.text nowrap ellipsis
+          text param.overlay_subtitle style=text.small color=color.muted nowrap ellipsis
+        }
+        IconButton "×" "dismiss-overlay"
+      }
+      rect h=1 bg=color.border
+      col w=fill h=fill scroll scrollbar=auto scrollbar-w=4 scrollbar-fg=color.borderHard clip {
+        each param.overlay_rows #generic-overlay-rows
+      }
+      when overlay_field_one_visible { row h=42 pad=6,10 { SubmitField param.overlay_field_one "" "focus-overlay-field-one" "change-overlay-field-one" "submit-overlay-field" } }
+      when overlay_field_two_visible { row h=42 pad=6,10 { SubmitField param.overlay_field_two "" "focus-overlay-field-two" "change-overlay-field-two" "submit-overlay-field" } }
+      when overlay_field_three_visible { row h=42 pad=6,10 { SubmitField param.overlay_field_three "" "focus-overlay-field-three" "change-overlay-field-three" "submit-overlay-field" } }
+      when overlay_footer_visible {
+        row h=46 pad=7,10 gap=8 align=center {
+          spacer
+          when overlay_secondary_visible { TextButton param.overlay_secondary_label "overlay-secondary" }
+          when overlay_primary_visible { TextButton param.overlay_primary_label "overlay-primary" }
+        }
+      }
+    }
+  }
+}
+
+def TabsOverlay() {
+  stack w=fill h=fill act=dismiss-overlay {
+    col w=300 h=240 attach=param.overlay_target gravity=below-end collide=auto offset=0,6 bg=color.surface stroke=color.borderHard stroke-w=1 radius=6 shadow=shadow.menu pad=8 gap=8 clip {
+      text "OPEN TABS" style=text.label color=color.dim nowrap
+      row h=32 { Field param.tab_filter "Search Tabs..." "focus-tab-filter" "change-tab-filter" }
+      col w=fill h=fill scroll clip {
+        each param.overlay_rows #tabs-overlay-rows
+      }
+    }
+  }
+}
+
+def NotificationCard(title, body) {
+  col w=fill h=96 bg=color.panelAlt stroke=color.border stroke-w=1 radius=4 pad=10,12 gap=7 {
+    text title style=text.ui color=color.text nowrap ellipsis
+    text body style=text.small color=color.muted w=fill
+  }
+}
+
+def NotificationsOverlay() {
+  stack w=fill h=fill act=dismiss-overlay {
+    col w=360 h=400 attach=param.overlay_target gravity=below-end collide=auto offset=0,6 bg=color.surface stroke=color.borderHard stroke-w=1 radius=6 shadow=shadow.menu clip {
+      row h=52 pad=0,14 align=center {
+        text "NOTIFICATIONS" style=text.label color=color.dim nowrap
+        spacer
+        text "ALL  ⌄" style=text.small color=color.dim nowrap
+      }
+      rect h=1 bg=color.border
+      col w=fill h=fill pad=11,12 gap=8 scroll clip {
+        NotificationCard "Kraken Native 0.1.0" "Native wgpu renderer, real graph, staging, and Git operations are available."
+        NotificationCard "AI provider" "No AI usage is fabricated. Configure an endpoint and API key in the environment."
+        NotificationCard "Repository" "Git operations report their real libgit2 result in the status bar."
+      }
+    }
+  }
+}
+
+def AddRemoteOverlay() {
+  stack w=fill h=fill bg=color.scrim act=dismiss-overlay {
+    col w=480 h=392 self=center bg=color.surface stroke=color.borderHard stroke-w=1 radius=6 shadow=shadow.modal clip {
+      row h=42 pad=0,24 align=center { text "Add remote" style=text.heading nowrap }
+      row h=52 pad=0,24 gap=20 align=center {
+        TextButton "URL" "select-add-remote-url"
+        TextButton "GitHub" "select-add-remote-github"
+        TextButton "Gitea" "select-add-remote-gitea"
+      }
+      rect h=1 bg=color.border
+      col w=fill h=fill pad=24 gap=16 {
+        SubmitField param.add_remote_name "Remote Name" "focus-add-remote-name" "change-add-remote-name" "submit-add-remote"
+        when add_remote_is_url {
+          SubmitField param.add_remote_url "Fetch URL" "focus-add-remote-url" "change-add-remote-url" "submit-add-remote"
+          SubmitField param.add_remote_push_url "Push URL (Optional)" "focus-add-remote-push-url" "change-add-remote-push-url" "submit-add-remote"
+        }
+        when add_remote_is_hosted {
+          SubmitField param.add_remote_repo "Repository (owner/name)" "focus-add-remote-repo" "change-add-remote-repo" "submit-add-remote"
+        }
+        when add_remote_is_gitea {
+          SubmitField param.add_remote_host "Gitea Host" "focus-add-remote-host" "change-add-remote-host" "submit-add-remote"
+        }
+      }
+      rect h=1 bg=color.border
+      row h=52 pad=0,24 gap=12 align=center {
+        spacer
+        TextButton "Cancel" "dismiss-overlay"
+        PrimaryButton "Add Remote" "add-remote"
+      }
+    }
+  }
+}
+
+def Palette() {
+  stack w=fill h=fill bg=#00000066 act=dismiss-overlay {
+    col w=620 h=430 self=top bg=color.surface stroke=color.borderHard stroke-w=1 radius=6 shadow=shadow.modal offset=0,94 clip {
+      row h=50 pad=9,12 gap=9 align=center press=focus-palette {
+        text "⌕" style=text.mono color=color.muted nowrap
+        text param.palette_query style=text.ui color=color.text w=fill nowrap ellipsis field=change-palette submit=submit-palette
+        text "ESC" style=text.small color=color.dim nowrap
+      }
+      rect h=1 bg=color.border
+      col w=fill h=fill scroll scrollbar=auto scrollbar-w=4 scrollbar-fg=color.borderHard clip {
+        each param.palette_rows #palette-rows virtual item-extent=38 overscan=4
+      }
+      row h=32 bg=color.panelAlt pad=0,12 align=center {
+        text param.palette_hint style=text.small color=color.muted nowrap
+        spacer
+        text "↑↓ Navigate  ↵ Select" style=text.small color=color.dim nowrap
+      }
+    }
+  }
+}
+
+def AiOverlay() {
+  stack w=fill h=fill bg=color.scrim act=dismiss-overlay {
+    col w=560 h=360 self=center bg=color.surface stroke=color.borderHard stroke-w=1 radius=6 shadow=shadow.modal pad=18 gap=14 {
+      row align=center { text "Recompose with AI" style=text.heading; spacer; IconButton "×" "dismiss-overlay" }
+      rect h=1 bg=color.border
+      col w=fill h=fill bg=color.input stroke=color.borderStrong stroke-w=1 radius=4 pad=12 scroll clip {
+        text param.ai_text style=text.ui color=color.muted w=fill
+        when ai_loading { text "Thinking…" style=text.ui color=color.purple }
+      }
+      row h=34 { spacer; TextButton "Generate" "request-ai" }
+    }
+  }
+}
+
+def Feedback() {
+  stack w=fill h=fill {
+    when toast_open {
+      row w=420 h=42 self=bottom bg=color.surface stroke=color.borderHard stroke-w=1 radius=5 shadow=shadow.menu pad=0,12 align=center offset=0,-36 act=dismiss-overlay {
+        text param.toast_text style=text.ui color=color.text w=fill nowrap ellipsis
+        text "×" style=text.ui color=color.muted nowrap
+      }
+    }
+    when error_open {
+      row w=560 h=52 self=bottom bg=color.redSoft stroke=color.red stroke-w=1 radius=5 shadow=shadow.menu pad=0,13 gap=10 align=center offset=0,-36 act=dismiss-overlay {
+        text "!" style=text.mono color=color.red nowrap
+        text param.error_text style=text.ui color=color.text w=fill nowrap ellipsis
+        text "×" style=text.ui color=color.muted nowrap
+      }
+    }
+  }
+}
+
+// ---------- document root ----------
+stack#app w=fill h=fill bg=color.window clip {
+  when !show_preferences {
+    col#shell w=fill h=fill pad=0,0,22,0 {
+      TopBar#topbar
+      when show_welcome { Welcome }
+      when show_workspace {
+        row w=fill h=fill {
+          row w=param.sidebar_width min-w=param.sidebar_min max-w=param.sidebar_max h=fill {
+            Sidebar
+          }
+          divider#sidebar-split w=4 h=fill bg=color.border resize=sidebar-resize dblclick=sidebar-reset {
+            when sidebar_collapsed { inert }
+          }
+          col w=fill min-w=320 h=fill {
+            stack w=fill min-h=120 h=fill {
+              when show_graph { GraphView }
+              when show_diff { DiffView }
+            }
+            divider#terminal-split w=fill h=4 bg=color.border resize=terminal-resize dblclick=terminal-reset {
+              when !show_terminal { h=0 inert }
+              when hover { bg=color.accent }
+              when pressed { bg=color.accent }
+            }
+            row w=fill h=param.terminal_height {
+              when show_terminal { TerminalView }
+            }
+          }
+          divider#detail-split w=4 h=fill bg=color.border resize=detail-resize dblclick=detail-reset {
+            when !show_detail { w=0 inert }
+          }
+          stack w=param.detail_width min-w=0 max-w=param.detail_max h=fill {
+            when show_wip_detail { WipDetail }
+            when show_commit_detail { CommitDetail }
+            when show_multi_detail { MultiDetail }
+          }
+        }
+      }
+    }
+    StatusBar#status
+  }
+  when show_preferences { Preferences }
+  when overlay_open { GenericOverlay }
+  when branches_overlay { BranchesOverlay }
+  when tabs_overlay { TabsOverlay }
+  when notifications_overlay { NotificationsOverlay }
+  when add_remote_open { AddRemoteOverlay }
+  when palette_open { Palette }
+  when ai_open { AiOverlay }
+  Feedback
+}

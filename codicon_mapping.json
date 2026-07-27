@@ -1,0 +1,2026 @@
+{
+  "60000": [
+    "add",
+    "plus",
+    "gist-new",
+    "repo-create"
+  ],
+  "60001": [
+    "lightbulb",
+    "light-bulb"
+  ],
+  "60002": [
+    "repo",
+    "repo-delete"
+  ],
+  "60003": [
+    "gist-fork",
+    "repo-forked"
+  ],
+  "60004": [
+    "git-pull-request",
+    "git-pull-request-abandoned"
+  ],
+  "60005": [
+    "record-keys",
+    "keyboard"
+  ],
+  "60006": [
+    "tag",
+    "git-pull-request-label",
+    "tag-add",
+    "tag-remove"
+  ],
+  "60007": [
+    "person",
+    "person-follow",
+    "person-outline",
+    "person-filled"
+  ],
+  "60008": [
+    "source-control"
+  ],
+  "60009": [
+    "mirror",
+    "mirror-public"
+  ],
+  "60010": [
+    "star",
+    "star-add",
+    "star-delete",
+    "star-empty"
+  ],
+  "60011": [
+    "comment",
+    "comment-add"
+  ],
+  "60012": [
+    "alert",
+    "warning"
+  ],
+  "60013": [
+    "search",
+    "search-save"
+  ],
+  "60014": [
+    "log-out",
+    "sign-out"
+  ],
+  "60015": [
+    "log-in",
+    "sign-in"
+  ],
+  "60016": [
+    "eye",
+    "eye-unwatch",
+    "eye-watch"
+  ],
+  "60017": [
+    "circle-filled",
+    "primitive-dot",
+    "close-dirty",
+    "debug-breakpoint",
+    "debug-breakpoint-disabled",
+    "debug-hint",
+    "terminal-decoration-success"
+  ],
+  "60018": [
+    "primitive-square"
+  ],
+  "60019": [
+    "edit",
+    "pencil"
+  ],
+  "60020": [
+    "info",
+    "issue-opened"
+  ],
+  "60021": [
+    "gist-private",
+    "git-fork-private",
+    "lock",
+    "mirror-private"
+  ],
+  "60022": [
+    "close",
+    "remove-close",
+    "x"
+  ],
+  "60023": [
+    "repo-sync",
+    "sync"
+  ],
+  "60024": [
+    "clone",
+    "desktop-download"
+  ],
+  "60025": [
+    "beaker",
+    "microscope"
+  ],
+  "60026": [
+    "vm",
+    "device-desktop"
+  ],
+  "60027": [
+    "file"
+  ],
+  "60028": [
+    "more",
+    "ellipsis",
+    "kebab-horizontal"
+  ],
+  "60029": [
+    "mail-reply",
+    "reply"
+  ],
+  "60030": [
+    "organization",
+    "organization-filled",
+    "organization-outline"
+  ],
+  "60031": [
+    "new-file",
+    "file-add"
+  ],
+  "60032": [
+    "new-folder",
+    "file-directory-create"
+  ],
+  "60033": [
+    "trash",
+    "trashcan"
+  ],
+  "60034": [
+    "history",
+    "clock"
+  ],
+  "60035": [
+    "folder",
+    "file-directory",
+    "symbol-folder"
+  ],
+  "60036": [
+    "logo-github",
+    "mark-github",
+    "github"
+  ],
+  "60037": [
+    "terminal",
+    "console",
+    "repl"
+  ],
+  "60038": [
+    "zap",
+    "symbol-event"
+  ],
+  "60039": [
+    "error",
+    "stop"
+  ],
+  "60040": [
+    "variable",
+    "symbol-variable"
+  ],
+  "60042": [
+    "array",
+    "symbol-array"
+  ],
+  "60043": [
+    "symbol-module",
+    "symbol-package",
+    "symbol-namespace",
+    "symbol-object"
+  ],
+  "60044": [
+    "symbol-method",
+    "symbol-function",
+    "symbol-constructor"
+  ],
+  "60047": [
+    "symbol-boolean",
+    "symbol-null"
+  ],
+  "60048": [
+    "symbol-numeric",
+    "symbol-number"
+  ],
+  "60049": [
+    "symbol-structure",
+    "symbol-struct"
+  ],
+  "60050": [
+    "symbol-parameter",
+    "symbol-type-parameter"
+  ],
+  "60051": [
+    "symbol-key",
+    "symbol-text"
+  ],
+  "60052": [
+    "symbol-reference",
+    "go-to-file"
+  ],
+  "60053": [
+    "symbol-enum",
+    "symbol-value"
+  ],
+  "60054": [
+    "symbol-ruler",
+    "symbol-unit"
+  ],
+  "60055": [
+    "activate-breakpoints"
+  ],
+  "60056": [
+    "archive"
+  ],
+  "60057": [
+    "arrow-both"
+  ],
+  "60058": [
+    "arrow-down"
+  ],
+  "60059": [
+    "arrow-left"
+  ],
+  "60060": [
+    "arrow-right"
+  ],
+  "60061": [
+    "arrow-small-down"
+  ],
+  "60062": [
+    "arrow-small-left"
+  ],
+  "60063": [
+    "arrow-small-right"
+  ],
+  "60064": [
+    "arrow-small-up"
+  ],
+  "60065": [
+    "arrow-up"
+  ],
+  "60066": [
+    "bell"
+  ],
+  "60067": [
+    "bold"
+  ],
+  "60068": [
+    "book"
+  ],
+  "60069": [
+    "bookmark"
+  ],
+  "60070": [
+    "debug-breakpoint-conditional-unverified"
+  ],
+  "60071": [
+    "debug-breakpoint-conditional",
+    "debug-breakpoint-conditional-disabled"
+  ],
+  "60072": [
+    "debug-breakpoint-data-unverified"
+  ],
+  "60073": [
+    "debug-breakpoint-data",
+    "debug-breakpoint-data-disabled"
+  ],
+  "60074": [
+    "debug-breakpoint-log-unverified"
+  ],
+  "60075": [
+    "debug-breakpoint-log",
+    "debug-breakpoint-log-disabled"
+  ],
+  "60076": [
+    "briefcase"
+  ],
+  "60077": [
+    "broadcast"
+  ],
+  "60078": [
+    "browser"
+  ],
+  "60079": [
+    "bug"
+  ],
+  "60080": [
+    "calendar"
+  ],
+  "60081": [
+    "case-sensitive"
+  ],
+  "60082": [
+    "check"
+  ],
+  "60083": [
+    "checklist"
+  ],
+  "60084": [
+    "chevron-down"
+  ],
+  "60085": [
+    "chevron-left"
+  ],
+  "60086": [
+    "chevron-right"
+  ],
+  "60087": [
+    "chevron-up"
+  ],
+  "60088": [
+    "chrome-close"
+  ],
+  "60089": [
+    "chrome-maximize"
+  ],
+  "60090": [
+    "chrome-minimize"
+  ],
+  "60091": [
+    "chrome-restore"
+  ],
+  "60092": [
+    "circle-outline",
+    "circle",
+    "debug-breakpoint-unverified",
+    "terminal-decoration-incomplete"
+  ],
+  "60093": [
+    "circle-slash"
+  ],
+  "60094": [
+    "circuit-board"
+  ],
+  "60095": [
+    "clear-all"
+  ],
+  "60096": [
+    "clippy"
+  ],
+  "60097": [
+    "close-all"
+  ],
+  "60098": [
+    "cloud-download"
+  ],
+  "60099": [
+    "cloud-upload"
+  ],
+  "60100": [
+    "code"
+  ],
+  "60101": [
+    "collapse-all"
+  ],
+  "60102": [
+    "color-mode"
+  ],
+  "60103": [
+    "comment-discussion"
+  ],
+  "60105": [
+    "credit-card"
+  ],
+  "60108": [
+    "dash"
+  ],
+  "60109": [
+    "dashboard"
+  ],
+  "60110": [
+    "database"
+  ],
+  "60111": [
+    "debug-continue"
+  ],
+  "60112": [
+    "debug-disconnect"
+  ],
+  "60113": [
+    "debug-pause"
+  ],
+  "60114": [
+    "debug-restart"
+  ],
+  "60115": [
+    "debug-start"
+  ],
+  "60116": [
+    "debug-step-into"
+  ],
+  "60117": [
+    "debug-step-out"
+  ],
+  "60118": [
+    "debug-step-over"
+  ],
+  "60119": [
+    "debug-stop"
+  ],
+  "60120": [
+    "debug"
+  ],
+  "60121": [
+    "device-camera-video"
+  ],
+  "60122": [
+    "device-camera"
+  ],
+  "60123": [
+    "device-mobile"
+  ],
+  "60124": [
+    "diff-added"
+  ],
+  "60125": [
+    "diff-ignored"
+  ],
+  "60126": [
+    "diff-modified"
+  ],
+  "60127": [
+    "diff-removed"
+  ],
+  "60128": [
+    "diff-renamed"
+  ],
+  "60129": [
+    "diff",
+    "diff-sidebyside"
+  ],
+  "60130": [
+    "discard"
+  ],
+  "60131": [
+    "editor-layout"
+  ],
+  "60132": [
+    "empty-window"
+  ],
+  "60133": [
+    "exclude"
+  ],
+  "60134": [
+    "extensions"
+  ],
+  "60135": [
+    "eye-closed"
+  ],
+  "60136": [
+    "file-binary"
+  ],
+  "60137": [
+    "file-code"
+  ],
+  "60138": [
+    "file-media"
+  ],
+  "60139": [
+    "file-pdf"
+  ],
+  "60140": [
+    "file-submodule"
+  ],
+  "60141": [
+    "file-symlink-directory"
+  ],
+  "60142": [
+    "file-symlink-file"
+  ],
+  "60143": [
+    "file-zip"
+  ],
+  "60144": [
+    "files"
+  ],
+  "60145": [
+    "filter"
+  ],
+  "60146": [
+    "flame"
+  ],
+  "60147": [
+    "fold-down"
+  ],
+  "60148": [
+    "fold-up"
+  ],
+  "60149": [
+    "fold"
+  ],
+  "60150": [
+    "folder-active"
+  ],
+  "60151": [
+    "folder-opened"
+  ],
+  "60152": [
+    "gear"
+  ],
+  "60153": [
+    "gift"
+  ],
+  "60154": [
+    "gist-secret"
+  ],
+  "60155": [
+    "gist"
+  ],
+  "60156": [
+    "git-commit"
+  ],
+  "60157": [
+    "git-compare",
+    "compare-changes"
+  ],
+  "60158": [
+    "git-merge"
+  ],
+  "60159": [
+    "github-action"
+  ],
+  "60160": [
+    "github-alt"
+  ],
+  "60161": [
+    "globe"
+  ],
+  "60162": [
+    "grabber"
+  ],
+  "60163": [
+    "graph"
+  ],
+  "60164": [
+    "gripper"
+  ],
+  "60165": [
+    "heart"
+  ],
+  "60166": [
+    "home"
+  ],
+  "60167": [
+    "horizontal-rule"
+  ],
+  "60168": [
+    "hubot"
+  ],
+  "60169": [
+    "inbox"
+  ],
+  "60171": [
+    "issue-reopened"
+  ],
+  "60172": [
+    "issues"
+  ],
+  "60173": [
+    "italic"
+  ],
+  "60174": [
+    "jersey"
+  ],
+  "60175": [
+    "json",
+    "bracket"
+  ],
+  "60176": [
+    "kebab-vertical"
+  ],
+  "60177": [
+    "key"
+  ],
+  "60178": [
+    "law"
+  ],
+  "60179": [
+    "lightbulb-autofix"
+  ],
+  "60180": [
+    "link-external"
+  ],
+  "60181": [
+    "link"
+  ],
+  "60182": [
+    "list-ordered"
+  ],
+  "60183": [
+    "list-unordered"
+  ],
+  "60184": [
+    "live-share"
+  ],
+  "60185": [
+    "loading"
+  ],
+  "60186": [
+    "location"
+  ],
+  "60187": [
+    "mail-read"
+  ],
+  "60188": [
+    "mail"
+  ],
+  "60189": [
+    "markdown"
+  ],
+  "60190": [
+    "megaphone"
+  ],
+  "60191": [
+    "mention"
+  ],
+  "60192": [
+    "milestone",
+    "git-pull-request-milestone"
+  ],
+  "60193": [
+    "mortar-board"
+  ],
+  "60194": [
+    "move"
+  ],
+  "60195": [
+    "multiple-windows"
+  ],
+  "60196": [
+    "mute"
+  ],
+  "60197": [
+    "no-newline"
+  ],
+  "60198": [
+    "note"
+  ],
+  "60199": [
+    "octoface"
+  ],
+  "60200": [
+    "open-preview"
+  ],
+  "60201": [
+    "package"
+  ],
+  "60202": [
+    "paintcan"
+  ],
+  "60203": [
+    "pin"
+  ],
+  "60204": [
+    "play",
+    "run"
+  ],
+  "60205": [
+    "plug"
+  ],
+  "60206": [
+    "preserve-case"
+  ],
+  "60207": [
+    "preview"
+  ],
+  "60208": [
+    "project"
+  ],
+  "60209": [
+    "pulse"
+  ],
+  "60210": [
+    "question"
+  ],
+  "60211": [
+    "quote"
+  ],
+  "60212": [
+    "radio-tower"
+  ],
+  "60213": [
+    "reactions"
+  ],
+  "60214": [
+    "references"
+  ],
+  "60215": [
+    "refresh"
+  ],
+  "60216": [
+    "regex"
+  ],
+  "60217": [
+    "remote-explorer"
+  ],
+  "60218": [
+    "remote"
+  ],
+  "60219": [
+    "remove"
+  ],
+  "60220": [
+    "replace-all"
+  ],
+  "60221": [
+    "replace"
+  ],
+  "60222": [
+    "repo-clone"
+  ],
+  "60223": [
+    "repo-force-push"
+  ],
+  "60224": [
+    "repo-pull"
+  ],
+  "60225": [
+    "repo-push"
+  ],
+  "60226": [
+    "report"
+  ],
+  "60227": [
+    "request-changes"
+  ],
+  "60228": [
+    "rocket"
+  ],
+  "60229": [
+    "root-folder-opened"
+  ],
+  "60230": [
+    "root-folder"
+  ],
+  "60231": [
+    "rss"
+  ],
+  "60232": [
+    "ruby"
+  ],
+  "60233": [
+    "save-all"
+  ],
+  "60234": [
+    "save-as"
+  ],
+  "60235": [
+    "save"
+  ],
+  "60236": [
+    "screen-full"
+  ],
+  "60237": [
+    "screen-normal"
+  ],
+  "60238": [
+    "search-stop"
+  ],
+  "60240": [
+    "server"
+  ],
+  "60241": [
+    "settings-gear"
+  ],
+  "60242": [
+    "settings"
+  ],
+  "60243": [
+    "shield"
+  ],
+  "60244": [
+    "smiley"
+  ],
+  "60245": [
+    "sort-precedence"
+  ],
+  "60246": [
+    "split-horizontal"
+  ],
+  "60247": [
+    "split-vertical"
+  ],
+  "60248": [
+    "squirrel"
+  ],
+  "60249": [
+    "star-full"
+  ],
+  "60250": [
+    "star-half"
+  ],
+  "60251": [
+    "symbol-class"
+  ],
+  "60252": [
+    "symbol-color"
+  ],
+  "60253": [
+    "symbol-constant"
+  ],
+  "60254": [
+    "symbol-enum-member"
+  ],
+  "60255": [
+    "symbol-field"
+  ],
+  "60256": [
+    "symbol-file"
+  ],
+  "60257": [
+    "symbol-interface"
+  ],
+  "60258": [
+    "symbol-keyword"
+  ],
+  "60259": [
+    "symbol-misc"
+  ],
+  "60260": [
+    "symbol-operator"
+  ],
+  "60261": [
+    "symbol-property",
+    "wrench",
+    "wrench-subaction"
+  ],
+  "60262": [
+    "symbol-snippet"
+  ],
+  "60263": [
+    "tasklist"
+  ],
+  "60264": [
+    "telescope"
+  ],
+  "60265": [
+    "text-size"
+  ],
+  "60266": [
+    "three-bars"
+  ],
+  "60267": [
+    "thumbsdown"
+  ],
+  "60268": [
+    "thumbsup"
+  ],
+  "60269": [
+    "tools"
+  ],
+  "60270": [
+    "triangle-down"
+  ],
+  "60271": [
+    "triangle-left"
+  ],
+  "60272": [
+    "triangle-right"
+  ],
+  "60273": [
+    "triangle-up"
+  ],
+  "60274": [
+    "twitter"
+  ],
+  "60275": [
+    "unfold"
+  ],
+  "60276": [
+    "unlock"
+  ],
+  "60277": [
+    "unmute"
+  ],
+  "60278": [
+    "unverified"
+  ],
+  "60279": [
+    "verified"
+  ],
+  "60280": [
+    "versions"
+  ],
+  "60281": [
+    "vm-active"
+  ],
+  "60282": [
+    "vm-outline"
+  ],
+  "60283": [
+    "vm-running"
+  ],
+  "60284": [
+    "watch"
+  ],
+  "60285": [
+    "whitespace"
+  ],
+  "60286": [
+    "whole-word"
+  ],
+  "60287": [
+    "window"
+  ],
+  "60288": [
+    "word-wrap"
+  ],
+  "60289": [
+    "zoom-in"
+  ],
+  "60290": [
+    "zoom-out"
+  ],
+  "60291": [
+    "list-filter"
+  ],
+  "60292": [
+    "list-flat"
+  ],
+  "60293": [
+    "list-selection",
+    "selection"
+  ],
+  "60294": [
+    "list-tree"
+  ],
+  "60295": [
+    "debug-breakpoint-function-unverified"
+  ],
+  "60296": [
+    "debug-breakpoint-function",
+    "debug-breakpoint-function-disabled"
+  ],
+  "60297": [
+    "debug-stackframe-active"
+  ],
+  "60298": [
+    "circle-small-filled",
+    "debug-stackframe-dot",
+    "terminal-decoration-mark"
+  ],
+  "60299": [
+    "debug-stackframe",
+    "debug-stackframe-focused"
+  ],
+  "60300": [
+    "debug-breakpoint-unsupported"
+  ],
+  "60301": [
+    "symbol-string"
+  ],
+  "60302": [
+    "debug-reverse-continue"
+  ],
+  "60303": [
+    "debug-step-back"
+  ],
+  "60304": [
+    "debug-restart-frame"
+  ],
+  "60305": [
+    "debug-alt"
+  ],
+  "60306": [
+    "call-incoming"
+  ],
+  "60307": [
+    "call-outgoing"
+  ],
+  "60308": [
+    "menu"
+  ],
+  "60309": [
+    "expand-all"
+  ],
+  "60310": [
+    "feedback",
+    "git-pull-request-reviewer"
+  ],
+  "60311": [
+    "group-by-ref-type"
+  ],
+  "60312": [
+    "ungroup-by-ref-type"
+  ],
+  "60313": [
+    "account",
+    "git-pull-request-assignee"
+  ],
+  "60314": [
+    "bell-dot"
+  ],
+  "60315": [
+    "debug-console"
+  ],
+  "60316": [
+    "library"
+  ],
+  "60317": [
+    "output"
+  ],
+  "60318": [
+    "run-all"
+  ],
+  "60319": [
+    "sync-ignored"
+  ],
+  "60320": [
+    "pinned"
+  ],
+  "60321": [
+    "github-inverted"
+  ],
+  "60322": [
+    "server-process"
+  ],
+  "60323": [
+    "server-environment"
+  ],
+  "60324": [
+    "pass",
+    "issue-closed"
+  ],
+  "60325": [
+    "stop-circle"
+  ],
+  "60326": [
+    "play-circle"
+  ],
+  "60327": [
+    "record"
+  ],
+  "60328": [
+    "debug-alt-small"
+  ],
+  "60329": [
+    "vm-connect"
+  ],
+  "60330": [
+    "cloud"
+  ],
+  "60331": [
+    "merge"
+  ],
+  "60332": [
+    "export"
+  ],
+  "60333": [
+    "graph-left"
+  ],
+  "60334": [
+    "magnet"
+  ],
+  "60335": [
+    "notebook"
+  ],
+  "60336": [
+    "redo"
+  ],
+  "60337": [
+    "check-all"
+  ],
+  "60338": [
+    "pinned-dirty"
+  ],
+  "60339": [
+    "pass-filled"
+  ],
+  "60340": [
+    "circle-large-filled"
+  ],
+  "60341": [
+    "circle-large",
+    "circle-large-outline"
+  ],
+  "60342": [
+    "combine",
+    "gather"
+  ],
+  "60343": [
+    "table"
+  ],
+  "60344": [
+    "variable-group"
+  ],
+  "60345": [
+    "type-hierarchy"
+  ],
+  "60346": [
+    "type-hierarchy-sub"
+  ],
+  "60347": [
+    "type-hierarchy-super"
+  ],
+  "60348": [
+    "git-pull-request-create"
+  ],
+  "60349": [
+    "run-above"
+  ],
+  "60350": [
+    "run-below"
+  ],
+  "60351": [
+    "notebook-template"
+  ],
+  "60352": [
+    "debug-rerun"
+  ],
+  "60353": [
+    "workspace-trusted"
+  ],
+  "60354": [
+    "workspace-untrusted"
+  ],
+  "60355": [
+    "workspace-unknown"
+  ],
+  "60356": [
+    "terminal-cmd"
+  ],
+  "60357": [
+    "terminal-debian"
+  ],
+  "60358": [
+    "terminal-linux"
+  ],
+  "60359": [
+    "terminal-powershell"
+  ],
+  "60360": [
+    "terminal-tmux"
+  ],
+  "60361": [
+    "terminal-ubuntu"
+  ],
+  "60362": [
+    "terminal-bash"
+  ],
+  "60363": [
+    "arrow-swap"
+  ],
+  "60364": [
+    "copy"
+  ],
+  "60365": [
+    "person-add"
+  ],
+  "60366": [
+    "filter-filled"
+  ],
+  "60367": [
+    "wand"
+  ],
+  "60368": [
+    "debug-line-by-line"
+  ],
+  "60369": [
+    "inspect"
+  ],
+  "60370": [
+    "layers"
+  ],
+  "60371": [
+    "layers-dot"
+  ],
+  "60372": [
+    "layers-active"
+  ],
+  "60373": [
+    "compass"
+  ],
+  "60374": [
+    "compass-dot"
+  ],
+  "60375": [
+    "compass-active"
+  ],
+  "60376": [
+    "azure"
+  ],
+  "60377": [
+    "issue-draft"
+  ],
+  "60378": [
+    "git-pull-request-closed"
+  ],
+  "60379": [
+    "git-pull-request-draft"
+  ],
+  "60380": [
+    "debug-all"
+  ],
+  "60381": [
+    "debug-coverage"
+  ],
+  "60382": [
+    "run-errors"
+  ],
+  "60383": [
+    "folder-library"
+  ],
+  "60384": [
+    "debug-continue-small"
+  ],
+  "60385": [
+    "beaker-stop"
+  ],
+  "60386": [
+    "graph-line"
+  ],
+  "60387": [
+    "graph-scatter"
+  ],
+  "60388": [
+    "pie-chart"
+  ],
+  "60389": [
+    "bracket-dot"
+  ],
+  "60390": [
+    "bracket-error"
+  ],
+  "60391": [
+    "lock-small"
+  ],
+  "60392": [
+    "azure-devops"
+  ],
+  "60393": [
+    "verified-filled"
+  ],
+  "60394": [
+    "newline"
+  ],
+  "60395": [
+    "layout"
+  ],
+  "60396": [
+    "layout-activitybar-left"
+  ],
+  "60397": [
+    "layout-activitybar-right"
+  ],
+  "60398": [
+    "layout-panel-left"
+  ],
+  "60399": [
+    "layout-panel-center"
+  ],
+  "60400": [
+    "layout-panel-justify"
+  ],
+  "60401": [
+    "layout-panel-right"
+  ],
+  "60402": [
+    "layout-panel"
+  ],
+  "60403": [
+    "layout-sidebar-left"
+  ],
+  "60404": [
+    "layout-sidebar-right"
+  ],
+  "60405": [
+    "layout-statusbar"
+  ],
+  "60406": [
+    "layout-menubar"
+  ],
+  "60407": [
+    "layout-centered"
+  ],
+  "60408": [
+    "target"
+  ],
+  "60409": [
+    "indent"
+  ],
+  "60410": [
+    "record-small"
+  ],
+  "60411": [
+    "error-small",
+    "terminal-decoration-error"
+  ],
+  "60412": [
+    "arrow-circle-down"
+  ],
+  "60413": [
+    "arrow-circle-left"
+  ],
+  "60414": [
+    "arrow-circle-right"
+  ],
+  "60415": [
+    "arrow-circle-up"
+  ],
+  "60416": [
+    "layout-sidebar-right-off"
+  ],
+  "60417": [
+    "layout-panel-off"
+  ],
+  "60418": [
+    "layout-sidebar-left-off"
+  ],
+  "60419": [
+    "blank"
+  ],
+  "60420": [
+    "heart-filled"
+  ],
+  "60421": [
+    "map",
+    "map-horizontal",
+    "fold-horizontal"
+  ],
+  "60422": [
+    "map-filled",
+    "map-horizontal-filled",
+    "fold-horizontal-filled"
+  ],
+  "60423": [
+    "circle-small"
+  ],
+  "60424": [
+    "bell-slash"
+  ],
+  "60425": [
+    "bell-slash-dot"
+  ],
+  "60426": [
+    "comment-unresolved"
+  ],
+  "60427": [
+    "git-pull-request-go-to-changes"
+  ],
+  "60428": [
+    "git-pull-request-new-changes"
+  ],
+  "60429": [
+    "search-fuzzy"
+  ],
+  "60430": [
+    "comment-draft"
+  ],
+  "60431": [
+    "send"
+  ],
+  "60432": [
+    "sparkle"
+  ],
+  "60433": [
+    "insert"
+  ],
+  "60434": [
+    "mic"
+  ],
+  "60435": [
+    "thumbsdown-filled"
+  ],
+  "60436": [
+    "thumbsup-filled"
+  ],
+  "60437": [
+    "coffee"
+  ],
+  "60438": [
+    "snake"
+  ],
+  "60439": [
+    "game"
+  ],
+  "60440": [
+    "vr"
+  ],
+  "60441": [
+    "chip"
+  ],
+  "60442": [
+    "piano"
+  ],
+  "60443": [
+    "music"
+  ],
+  "60444": [
+    "mic-filled"
+  ],
+  "60445": [
+    "repo-fetch"
+  ],
+  "60446": [
+    "copilot"
+  ],
+  "60447": [
+    "lightbulb-sparkle"
+  ],
+  "60448": [
+    "robot"
+  ],
+  "60449": [
+    "sparkle-filled"
+  ],
+  "60450": [
+    "diff-single"
+  ],
+  "60451": [
+    "diff-multiple"
+  ],
+  "60452": [
+    "surround-with"
+  ],
+  "60453": [
+    "share"
+  ],
+  "60454": [
+    "git-stash"
+  ],
+  "60455": [
+    "git-stash-apply"
+  ],
+  "60456": [
+    "git-stash-pop"
+  ],
+  "60457": [
+    "vscode"
+  ],
+  "60458": [
+    "vscode-insiders"
+  ],
+  "60459": [
+    "code-oss"
+  ],
+  "60460": [
+    "run-coverage"
+  ],
+  "60461": [
+    "run-all-coverage"
+  ],
+  "60462": [
+    "coverage"
+  ],
+  "60463": [
+    "github-project"
+  ],
+  "60464": [
+    "map-vertical",
+    "fold-vertical"
+  ],
+  "60465": [
+    "map-vertical-filled",
+    "fold-vertical-filled"
+  ],
+  "60466": [
+    "go-to-search"
+  ],
+  "60467": [
+    "percentage",
+    "sort-percentage"
+  ],
+  "60468": [
+    "attach"
+  ],
+  "60469": [
+    "go-to-editing-session"
+  ],
+  "60470": [
+    "edit-session"
+  ],
+  "60471": [
+    "code-review"
+  ],
+  "60472": [
+    "copilot-warning"
+  ],
+  "60473": [
+    "python"
+  ],
+  "60474": [
+    "copilot-large"
+  ],
+  "60475": [
+    "copilot-warning-large"
+  ],
+  "60476": [
+    "keyboard-tab"
+  ],
+  "60477": [
+    "copilot-blocked"
+  ],
+  "60478": [
+    "copilot-not-connected"
+  ],
+  "60479": [
+    "flag"
+  ],
+  "60480": [
+    "lightbulb-empty"
+  ],
+  "60481": [
+    "symbol-method-arrow"
+  ],
+  "60482": [
+    "copilot-unavailable"
+  ],
+  "60483": [
+    "repo-pinned"
+  ],
+  "60484": [
+    "keyboard-tab-above"
+  ],
+  "60485": [
+    "keyboard-tab-below"
+  ],
+  "60486": [
+    "git-pull-request-done"
+  ],
+  "60487": [
+    "mcp"
+  ],
+  "60488": [
+    "extensions-large"
+  ],
+  "60489": [
+    "layout-panel-dock"
+  ],
+  "60490": [
+    "layout-sidebar-left-dock"
+  ],
+  "60491": [
+    "layout-sidebar-right-dock"
+  ],
+  "60492": [
+    "copilot-in-progress"
+  ],
+  "60493": [
+    "copilot-error"
+  ],
+  "60494": [
+    "copilot-success"
+  ],
+  "60495": [
+    "chat-sparkle"
+  ],
+  "60496": [
+    "search-sparkle"
+  ],
+  "60497": [
+    "edit-sparkle"
+  ],
+  "60498": [
+    "copilot-snooze"
+  ],
+  "60499": [
+    "send-to-remote-agent"
+  ],
+  "60500": [
+    "comment-discussion-sparkle"
+  ],
+  "60501": [
+    "chat-sparkle-warning"
+  ],
+  "60502": [
+    "chat-sparkle-error"
+  ],
+  "60503": [
+    "collection"
+  ],
+  "60504": [
+    "new-collection"
+  ],
+  "60505": [
+    "thinking"
+  ],
+  "60506": [
+    "build"
+  ],
+  "60507": [
+    "comment-discussion-quote"
+  ],
+  "60508": [
+    "cursor"
+  ],
+  "60509": [
+    "eraser"
+  ],
+  "60510": [
+    "file-text"
+  ],
+  "60512": [
+    "quotes"
+  ],
+  "60513": [
+    "rename"
+  ],
+  "60514": [
+    "run-with-deps"
+  ],
+  "60515": [
+    "debug-connected"
+  ],
+  "60516": [
+    "strikethrough"
+  ],
+  "60517": [
+    "open-in-product"
+  ],
+  "60518": [
+    "index-zero"
+  ],
+  "60519": [
+    "agent"
+  ],
+  "60520": [
+    "edit-code"
+  ],
+  "60521": [
+    "repo-selected"
+  ],
+  "60522": [
+    "skip"
+  ],
+  "60523": [
+    "merge-into"
+  ],
+  "60524": [
+    "git-branch-changes"
+  ],
+  "60525": [
+    "git-branch-staged-changes"
+  ],
+  "60526": [
+    "git-branch-conflicts"
+  ],
+  "60527": [
+    "git-branch",
+    "git-branch-create",
+    "git-branch-delete"
+  ],
+  "60528": [
+    "search-large"
+  ],
+  "60529": [
+    "terminal-git-bash"
+  ],
+  "60530": [
+    "window-active"
+  ],
+  "60531": [
+    "forward"
+  ],
+  "60532": [
+    "download"
+  ],
+  "60533": [
+    "clockface"
+  ],
+  "60534": [
+    "unarchive"
+  ],
+  "60535": [
+    "session-in-progress"
+  ],
+  "60536": [
+    "collection-small"
+  ],
+  "60537": [
+    "vm-small"
+  ],
+  "60538": [
+    "cloud-small"
+  ],
+  "60539": [
+    "add-small"
+  ],
+  "60540": [
+    "remove-small"
+  ],
+  "60541": [
+    "worktree-small"
+  ],
+  "60542": [
+    "worktree"
+  ],
+  "60543": [
+    "screen-cut"
+  ],
+  "60544": [
+    "ask"
+  ],
+  "60545": [
+    "openai"
+  ],
+  "60546": [
+    "claude"
+  ],
+  "60547": [
+    "open-in-window"
+  ],
+  "60548": [
+    "new-session"
+  ],
+  "60549": [
+    "terminal-secure"
+  ],
+  "60550": [
+    "chat-import"
+  ],
+  "60551": [
+    "chat-export"
+  ],
+  "60552": [
+    "share-window"
+  ],
+  "60553": [
+    "circle-slash-compact"
+  ],
+  "60554": [
+    "copilot-compact"
+  ],
+  "60555": [
+    "folder-opened-compact"
+  ],
+  "60556": [
+    "folder-compact"
+  ],
+  "60557": [
+    "gear-compact"
+  ],
+  "60558": [
+    "git-branch-compact"
+  ],
+  "60559": [
+    "library-compact"
+  ],
+  "60560": [
+    "record-keys-compact"
+  ],
+  "60561": [
+    "remote-compact"
+  ],
+  "60562": [
+    "repo-forked-compact"
+  ],
+  "60563": [
+    "repo-compact"
+  ],
+  "60564": [
+    "shield-compact"
+  ],
+  "60565": [
+    "sparkle-compact"
+  ],
+  "60566": [
+    "symbol-color-compact"
+  ],
+  "60567": [
+    "window-compact"
+  ],
+  "60568": [
+    "error-compact"
+  ],
+  "60569": [
+    "warning-compact"
+  ],
+  "60570": [
+    "pass-compact"
+  ],
+  "60571": [
+    "important"
+  ],
+  "60572": [
+    "important-compact"
+  ],
+  "60573": [
+    "rocket-compact"
+  ],
+  "60574": [
+    "unpin"
+  ],
+  "60575": [
+    "add-compact"
+  ],
+  "60576": [
+    "attach-compact"
+  ],
+  "60577": [
+    "beaker-compact"
+  ],
+  "60578": [
+    "check-compact"
+  ],
+  "60579": [
+    "checklist-compact"
+  ],
+  "60580": [
+    "chevron-down-compact"
+  ],
+  "60581": [
+    "chevron-left-compact"
+  ],
+  "60582": [
+    "chevron-right-compact"
+  ],
+  "60583": [
+    "chevron-up-compact"
+  ],
+  "60584": [
+    "circle-filled-compact"
+  ],
+  "60585": [
+    "circle-small-filled-compact"
+  ],
+  "60586": [
+    "close-compact"
+  ],
+  "60587": [
+    "collapse-all-compact"
+  ],
+  "60588": [
+    "comment-compact"
+  ],
+  "60589": [
+    "comment-unresolved-compact"
+  ],
+  "60590": [
+    "debug-connected-compact"
+  ],
+  "60591": [
+    "debug-disconnect-compact"
+  ],
+  "60592": [
+    "edit-compact"
+  ],
+  "60593": [
+    "file-media-compact"
+  ],
+  "60594": [
+    "git-fetch"
+  ],
+  "60595": [
+    "lightbulb-compact"
+  ],
+  "60596": [
+    "loading-compact"
+  ],
+  "60597": [
+    "pass-filled-compact"
+  ],
+  "60598": [
+    "project-compact"
+  ],
+  "60599": [
+    "refresh-compact"
+  ],
+  "60600": [
+    "search-compact"
+  ],
+  "60601": [
+    "session-in-progress-compact"
+  ],
+  "60602": [
+    "sync-compact"
+  ],
+  "60603": [
+    "terminal-compact"
+  ],
+  "60604": [
+    "vm-pending"
+  ],
+  "60605": [
+    "worktree-compact"
+  ],
+  "60606": [
+    "developer-tools"
+  ],
+  "60607": [
+    "cloud-compact"
+  ],
+  "60608": [
+    "agent-compact"
+  ],
+  "60609": [
+    "ask-compact"
+  ],
+  "60610": [
+    "settings-compact"
+  ],
+  "60611": [
+    "vm-compact"
+  ],
+  "60612": [
+    "run-compact"
+  ],
+  "60613": [
+    "git-pull-request-comment"
+  ],
+  "60614": [
+    "git-pull-request-error"
+  ],
+  "60615": [
+    "right-panel-hide"
+  ],
+  "60616": [
+    "right-panel-show"
+  ],
+  "60617": [
+    "vscode-insiders-outline"
+  ],
+  "60618": [
+    "vscode-outline"
+  ],
+  "60619": [
+    "voice-mode"
+  ],
+  "60620": [
+    "voice-mode-compact"
+  ],
+  "60621": [
+    "mic-download"
+  ],
+  "60622": [
+    "mic-download-compact"
+  ],
+  "60623": [
+    "voice-mode-download"
+  ],
+  "60624": [
+    "voice-mode-download-compact"
+  ],
+  "60625": [
+    "google-gemini"
+  ],
+  "60626": [
+    "kimi"
+  ],
+  "60627": [
+    "microsoft"
+  ],
+  "60628": [
+    "fish1-happy"
+  ],
+  "60629": [
+    "fish1-neutral"
+  ],
+  "60630": [
+    "fish1-sad"
+  ],
+  "60631": [
+    "fish1-very-sad"
+  ],
+  "60632": [
+    "fish2-happy"
+  ],
+  "60633": [
+    "fish2-neutral"
+  ],
+  "60634": [
+    "fish2-sad"
+  ],
+  "60635": [
+    "fish2-very-sad"
+  ],
+  "60636": [
+    "fish3-happy"
+  ],
+  "60637": [
+    "fish3-neutral"
+  ],
+  "60638": [
+    "fish3-sad"
+  ],
+  "60639": [
+    "fish3-very-sad"
+  ],
+  "60640": [
+    "fish4-happy"
+  ],
+  "60641": [
+    "fish4-neutral"
+  ],
+  "60642": [
+    "fish4-sad"
+  ],
+  "60643": [
+    "fish4-very-sad"
+  ],
+  "60644": [
+    "person-voice"
+  ],
+  "60645": [
+    "person-voice-compact"
+  ],
+  "60646": [
+    "person-voice-filled"
+  ],
+  "60647": [
+    "person-voice-filled-compact"
+  ]
+}

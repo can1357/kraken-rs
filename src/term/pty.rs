@@ -3,7 +3,7 @@ use std::{
     path::Path,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread,
 };
@@ -15,7 +15,10 @@ use winit::event_loop::EventLoopProxy;
 
 use crate::app::UserEvent;
 
-use super::{TerminalSnapshot, grid::Grid};
+use super::{
+    Cell, TerminalSnapshot,
+    grid::{Grid, TerminalModes},
+};
 
 /// Live shell process plus a VT-compatible screen model shared with rendering.
 pub(crate) struct Terminal {
@@ -24,6 +27,7 @@ pub(crate) struct Terminal {
     master: Mutex<Box<dyn portable_pty::MasterPty + Send>>,
     child: Mutex<Box<dyn portable_pty::Child + Send + Sync>>,
     exited: Arc<AtomicBool>,
+    revision: Arc<AtomicU64>,
 }
 
 impl Terminal {
@@ -64,6 +68,8 @@ impl Terminal {
         let reader_grid = Arc::clone(&grid);
         let exited = Arc::new(AtomicBool::new(false));
         let reader_exited = Arc::clone(&exited);
+        let revision = Arc::new(AtomicU64::new(1));
+        let reader_revision = Arc::clone(&revision);
         thread::spawn(move || {
             let mut reader = reader;
             let mut parser = Parser::new();
@@ -78,11 +84,15 @@ impl Terminal {
                 } else {
                     false
                 };
+                if updated {
+                    reader_revision.fetch_add(1, Ordering::Release);
+                }
                 if updated && let Some(proxy) = &event_loop_proxy {
                     let _ = proxy.send_event(UserEvent::Terminal);
                 }
             }
             reader_exited.store(true, Ordering::Release);
+            reader_revision.fetch_add(1, Ordering::Release);
             if let Some(proxy) = &event_loop_proxy {
                 let _ = proxy.send_event(UserEvent::Terminal);
             }
@@ -93,6 +103,7 @@ impl Terminal {
             master: Mutex::new(pair.master),
             child: Mutex::new(child),
             exited,
+            revision,
         })
     }
 
@@ -104,16 +115,30 @@ impl Terminal {
     }
 
     pub(crate) fn resize(&self, cols: usize, rows: usize) {
-        if let Ok(mut grid) = self.grid.lock() {
-            grid.resize(cols, rows);
-        }
+        self.resize_viewport(cols, rows, 0, 0);
+    }
+
+    pub(crate) fn resize_viewport(
+        &self,
+        cols: usize,
+        rows: usize,
+        pixel_width: usize,
+        pixel_height: usize,
+    ) {
+        let changed = self
+            .grid
+            .lock()
+            .is_ok_and(|mut grid| grid.resize(cols, rows));
         if let Ok(master) = self.master.lock() {
             let _ = master.resize(PtySize {
-                rows: rows.max(1) as u16,
-                cols: cols.max(1) as u16,
-                pixel_width: 0,
-                pixel_height: 0,
+                rows: pty_dimension(rows),
+                cols: pty_dimension(cols),
+                pixel_width: pty_dimension_or_zero(pixel_width),
+                pixel_height: pty_dimension_or_zero(pixel_height),
             });
+        }
+        if changed {
+            self.revision.fetch_add(1, Ordering::Release);
         }
     }
 
@@ -123,21 +148,46 @@ impl Terminal {
             |_| TerminalSnapshot {
                 cols: 1,
                 rows: 1,
-                cells: Vec::new(),
+                cells: vec![Cell::default()],
                 cursor_col: 0,
                 cursor_row: 0,
                 cursor_visible: false,
                 exited,
+                viewport_top: 0,
             },
             |grid| grid.snapshot(exited),
         )
     }
 
     pub(crate) fn scroll(&self, delta: i32) {
-        if let Ok(mut grid) = self.grid.lock() {
-            grid.scroll(delta);
+        if self.grid.lock().is_ok_and(|mut grid| grid.scroll(delta)) {
+            self.revision.fetch_add(1, Ordering::Release);
         }
     }
+
+    pub(crate) fn modes(&self) -> TerminalModes {
+        self.grid
+            .lock()
+            .map_or_else(|_| TerminalModes::default(), |grid| grid.modes())
+    }
+
+    pub(crate) fn selection_text(&self, start: (usize, usize), end: (usize, usize)) -> String {
+        self.grid
+            .lock()
+            .map_or_else(|_| String::new(), |grid| grid.selection_text(start, end))
+    }
+
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision.load(Ordering::Acquire)
+    }
+}
+
+fn pty_dimension(value: usize) -> u16 {
+    u16::try_from(value.max(1)).unwrap_or(u16::MAX)
+}
+
+fn pty_dimension_or_zero(value: usize) -> u16 {
+    u16::try_from(value).unwrap_or(u16::MAX)
 }
 
 impl Drop for Terminal {
