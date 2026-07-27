@@ -1,12 +1,24 @@
-# Build output
+# Rust build output
 /target/
+/target-bisect/
+**/*.rs.bk
 
-# Generated demo/test repositories and rendered checkpoints
+# Icon sources for codicon_mapping.json (package.json + bun.lock are tracked)
+/node_modules/
+
+# Generated demo repositories, rendered checkpoints, and QA captures.
+# Every writer creates these with create_dir_all/mkdir -p, so they need not
+# exist on a fresh clone.
 /artifacts/
+/qa/
+/.omp/qa/
+# Root-level scratch notes: patch.txt, timeline.txt, reps*.txt, sel*.txt.
+# Scoped to the root so test fixtures under src/ stay visible.
+/*.txt
 
-# OS junk
+# OS and editor junk
 .DS_Store
-
-
-*.txt
-
+._*
+*.swp
+/.vscode/
+/.idea/
