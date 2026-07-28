@@ -1,5 +1,6 @@
 pub(crate) mod action;
 pub(crate) mod geometry;
+pub(crate) mod highlight;
 pub(crate) mod icons;
 pub(crate) mod layout;
 pub(crate) mod menu;

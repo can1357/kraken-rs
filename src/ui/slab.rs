@@ -1,8 +1,7 @@
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet},
     path::{Component, Path, PathBuf},
-    sync::LazyLock,
 };
 
 use chrono::{DateTime, Local, Utc};
@@ -11,7 +10,6 @@ use slab_kernel::{
     dispatch::{Effects, Event, M_CTRL, M_META, M_SHIFT},
     flatten::Frame,
 };
-use syntect::{easy::HighlightLines, highlighting::ThemeSet, parsing::SyntaxSet};
 
 use crate::{
     app::{
@@ -27,7 +25,7 @@ use crate::{
     ui::{
         action::{FileContextScope, ResizeTarget, TextFieldTarget, UiAction},
         geometry::{COMMIT_HEADER_HEIGHT, COMMIT_ROW_HEIGHT},
-        icons, layout,
+        highlight, icons, layout,
         menu::MenuEntry,
     },
 };
@@ -170,6 +168,7 @@ struct DiffWindowKey {
     text_selection: Option<(DiffTextPoint, DiffTextPoint)>,
     search_query: String,
     search_cursor: usize,
+    highlight_version: u64,
 }
 
 /// One minimap band: the row range it covers and its strongest change tone.
@@ -203,8 +202,6 @@ struct DiffSync {
     max_columns: usize,
     /// Byte range of every content line in the file view.
     file_lines: Vec<(usize, usize)>,
-    /// Highlighted spans keyed by (row, pane slot); depends only on the text.
-    runs: HashMap<(usize, u8), Vec<DiffRowsOldRunsItem>>,
     /// Search results for `search_key`: (row, side, start, end) columns.
     search: Vec<(usize, u8, usize, usize)>,
     search_key: Option<(String, bool)>,
@@ -606,7 +603,6 @@ impl SlabDocument {
         let sync = &mut self.diff_sync;
         if sync.identity != identity {
             sync.identity = identity;
-            sync.runs.clear();
             sync.file_lines.clear();
             sync.search.clear();
             sync.search_key = None;
@@ -686,6 +682,9 @@ impl SlabDocument {
             text_selection: state.diff_text_selection,
             search_query: state.diff_search.text().to_owned(),
             search_cursor: state.diff_search_cursor,
+            // A completed highlight batch rebuilds the window so the rows it
+            // covered stop rendering as plain text.
+            highlight_version: highlight::version(),
         };
         if sync.window_key.as_ref() == Some(&key) {
             return;
@@ -694,16 +693,19 @@ impl SlabDocument {
         let Some(diff) = state.diff.as_ref() else {
             return;
         };
+        let revision = identity.revision;
+        let mut pending = Vec::new();
         let items = if identity.file_view {
             let content = diff.content.as_deref().unwrap_or_default();
             (start..end)
                 .map(|index| {
                     let (from, to) = sync.file_lines[index];
                     file_view_row(
-                        &mut sync.runs,
+                        revision,
                         diff.path.as_path(),
                         index,
                         &content[from..to],
+                        &mut pending,
                     )
                 })
                 .collect::<Vec<_>>()
@@ -713,14 +715,16 @@ impl SlabDocument {
                     diff_row_item(
                         state,
                         diff.path.as_path(),
+                        revision,
                         index,
                         &diff.rows[index],
-                        &mut sync.runs,
+                        &mut pending,
                         &sync.search,
                     )
                 })
                 .collect::<Vec<_>>()
         };
+        highlight::queue(revision, diff.path.as_path(), pending);
         let row_height = f64::from(layout::DIFF_ROW_HEIGHT);
         self.doc.set_diff_rows(&items);
         self.doc
@@ -3679,10 +3683,11 @@ fn diff_window(scroll: f64, viewport_height: f32, total: usize) -> (usize, usize
 
 /// Builds one file-view row from a single content line.
 fn file_view_row(
-    runs: &mut HashMap<(usize, u8), Vec<DiffRowsOldRunsItem>>,
+    revision: u64,
     path: &Path,
     index: usize,
     line: &str,
+    pending: &mut Vec<highlight::PendingLine>,
 ) -> DiffRowsItem {
     DiffRowsItem {
         key: Some(format!("diff:file:{}:{index}", path.display())),
@@ -3707,7 +3712,7 @@ fn file_view_row(
         selected: false,
         old_runs: Vec::new(),
         new_runs: Vec::new(),
-        unified_runs: cached_runs(runs, path, index, RUN_SLOT_UNIFIED, line),
+        unified_runs: row_runs(revision, index, RUN_SLOT_UNIFIED, line, pending),
         old_marks: Vec::new(),
         new_marks: Vec::new(),
         unified_marks: Vec::new(),
@@ -3749,31 +3754,67 @@ fn diff_map_bands(rows: &[DiffRow], map_height: f32) -> Vec<DiffMapBand> {
         .collect()
 }
 
-/// Pane slots for the per-row highlighted-run cache.
+/// Pane slots identifying a highlighted line within a diff revision.
 const RUN_SLOT_OLD: u8 = 0;
 const RUN_SLOT_NEW: u8 = 1;
 const RUN_SLOT_UNIFIED: u8 = 2;
 
-/// Returns the highlighted spans for one pane of a row, computing and
-/// memoizing them on first use; the cache lives as long as the document.
-fn cached_runs(
-    runs: &mut HashMap<(usize, u8), Vec<DiffRowsOldRunsItem>>,
-    path: &Path,
+/// Returns the runs for one pane of a row, recording a miss in `pending`.
+///
+/// Highlighting happens on [`highlight`] worker threads, so a row scrolled
+/// into view paints as plain muted text for the frame or two before its
+/// spans land; the batch completion bumps [`highlight::version`], which is
+/// part of the window key and so triggers the rebuild that shows them.
+fn row_runs(
+    revision: u64,
     index: usize,
     slot: u8,
     text: &str,
+    pending: &mut Vec<highlight::PendingLine>,
 ) -> Vec<DiffRowsOldRunsItem> {
-    runs.entry((index, slot))
-        .or_insert_with(|| syntax_runs(path, text))
-        .clone()
+    if text.is_empty() {
+        return vec![DiffRowsOldRunsItem {
+            key: Some("syntax:plain".to_owned()),
+            content: String::new(),
+            tone: TEXT,
+        }];
+    }
+    let plain = |content: String| {
+        vec![DiffRowsOldRunsItem {
+            key: Some("syntax:plain".to_owned()),
+            content,
+            tone: MUTED,
+        }]
+    };
+    let Some(spans) = highlight::spans(revision, index, slot) else {
+        pending.push((index, slot, text.to_owned()));
+        return plain(text.to_owned());
+    };
+    if spans.is_empty() {
+        return plain(text.to_owned());
+    }
+    let mut offset = 0;
+    spans
+        .into_iter()
+        .map(|span| {
+            let item = DiffRowsOldRunsItem {
+                key: Some(format!("syntax:{offset}")),
+                content: span.content,
+                tone: span.tone,
+            };
+            offset += item.content.len();
+            item
+        })
+        .collect()
 }
 
 fn diff_row_item(
     state: &AppState,
     path: &Path,
+    revision: u64,
     index: usize,
     row: &DiffRow,
-    runs: &mut HashMap<(usize, u8), Vec<DiffRowsOldRunsItem>>,
+    pending: &mut Vec<highlight::PendingLine>,
     search_results: &[(usize, u8, usize, usize)],
 ) -> DiffRowsItem {
     if row.kind == DiffRowKind::Hunk {
@@ -3818,8 +3859,8 @@ fn diff_row_item(
     let mut new_marks = Vec::new();
     let mut unified_marks = Vec::new();
     if state.diff_split {
-        old_runs = cached_runs(runs, path, index, RUN_SLOT_OLD, &row.old_text);
-        new_runs = cached_runs(runs, path, index, RUN_SLOT_NEW, &row.new_text);
+        old_runs = row_runs(revision, index, RUN_SLOT_OLD, &row.old_text, pending);
+        new_runs = row_runs(revision, index, RUN_SLOT_NEW, &row.new_text, pending);
         old_marks = diff_marks(
             state,
             index,
@@ -3852,7 +3893,7 @@ fn diff_row_item(
         } else {
             RUN_SLOT_NEW
         };
-        unified_runs = cached_runs(runs, path, index, slot, text);
+        unified_runs = row_runs(revision, index, slot, text, pending);
         unified_marks = diff_marks(state, index, side, text, intraline, tone, search_results);
     }
     DiffRowsItem {
@@ -3888,65 +3929,6 @@ fn diff_row_item(
     }
 }
 
-fn syntax_runs(path: &Path, line: &str) -> Vec<DiffRowsOldRunsItem> {
-    static SYNTAXES: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
-    static THEMES: LazyLock<ThemeSet> = LazyLock::new(ThemeSet::load_defaults);
-    if line.is_empty() {
-        return vec![DiffRowsOldRunsItem {
-            key: Some("syntax:plain".to_owned()),
-            content: String::new(),
-            tone: TEXT,
-        }];
-    }
-    let extension = path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .unwrap_or("txt");
-    let syntax = SYNTAXES
-        .find_syntax_by_extension(extension)
-        .unwrap_or_else(|| SYNTAXES.find_syntax_plain_text());
-    let Some(theme) = THEMES
-        .themes
-        .get("base16-ocean.dark")
-        .or_else(|| THEMES.themes.values().next())
-    else {
-        return vec![DiffRowsOldRunsItem {
-            key: Some("syntax:fallback".to_owned()),
-            content: line.to_owned(),
-            tone: MUTED,
-        }];
-    };
-    let mut highlighter = HighlightLines::new(syntax, theme);
-    highlighter.highlight_line(line, &SYNTAXES).map_or_else(
-        |_| {
-            vec![DiffRowsOldRunsItem {
-                key: Some("syntax:error".to_owned()),
-                content: line.to_owned(),
-                tone: MUTED,
-            }]
-        },
-        |ranges| {
-            let mut offset = 0;
-            ranges
-                .into_iter()
-                .map(|(style, token)| {
-                    let item = DiffRowsOldRunsItem {
-                        key: Some(format!("syntax:{offset}")),
-                        content: token.to_owned(),
-                        tone: rgba(
-                            style.foreground.r,
-                            style.foreground.g,
-                            style.foreground.b,
-                            style.foreground.a,
-                        ),
-                    };
-                    offset += token.len();
-                    item
-                })
-                .collect()
-        },
-    )
-}
 
 fn diff_marks(
     state: &AppState,

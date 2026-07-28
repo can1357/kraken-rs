@@ -39,6 +39,8 @@ pub(crate) enum UserEvent {
     Ai,
     /// An avatar fetch completed.
     Avatar,
+    /// A background diff syntax highlight completed.
+    Highlight,
     /// A repository filesystem refresh completed.
     Filesystem,
     /// The embedded terminal produced output or exited.
