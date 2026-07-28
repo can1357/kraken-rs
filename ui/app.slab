@@ -728,7 +728,7 @@ def GraphRefChip(label="", show_label=true, label_w=0, lead="", show_lead=false,
   }
 }
 
-def GraphItem(lane_c0="", lane_c1="", lane_c2="", lane_c3="", lane_c4="", lane_c5="", lane_c6="", lane_c7="", lane_c8="", lane_c9="", lane_extra="", lane_extra_tone=#A878F5, lane_dashed="", lane_dashed_tone=#40BACD, refs=list(GraphRefChip), message_chips=list(GraphRefChip), subject="", description="", show_graph_label=false, graph_label="", date="", sha="", node_x=24, node_tone=#40BACD, band_mark=false, show_trail=true, trail_base_width=0, trail_lift_x=24, trail_lift_width=0, trail_shadow_x=24, trail_shadow_width=0, trail_end_x=24, trail_base_tone=#40BACD0D, trail_lift_tone=#40BACD0F, trail_end_tone=#40BACDE6, avatar="", avatar_visible=false, dot_visible=true, wip_node=false, worktree_node=false, selected=false, local=false, worktree_wip=false, matched=false, current_match=false, has_modified=false, modified_count="", has_added=false, added_count="", truncated=false) export {
+def GraphItem(lane_c0="", lane_c1="", lane_c2="", lane_c3="", lane_c4="", lane_c5="", lane_c6="", lane_c7="", lane_c8="", lane_c9="", lane_extra="", lane_extra_tone=#A878F5, lane_dashed="", lane_dashed_tone=#40BACD, refs=list(GraphRefChip), message_chips=list(GraphRefChip), subject="", description="", show_graph_label=false, graph_label="", date="", sha="", node_x=24, node_tone=#40BACD, band_mark=false, show_trail=true, trail_base_width=0, trail_lift_x=24, trail_lift_width=0, trail_shadow_x=24, trail_shadow_width=0, trail_end_x=24, trail_base_tone=#40BACD0D, trail_lift_tone=#40BACD0F, trail_end_tone=#40BACDE6, avatar="", avatar_visible=false, dot_visible=true, wip_node=false, worktree_node=false, selected=false, local=false, worktree_wip=false, matched=false, current_match=false, has_modified=false, modified_count="", has_added=false, added_count="") export {
   stack w=fill h=26 bleed act=graph-row context=graph-row-context role="row" label=subject {
     when local { bg=#4CB7820F }
     when worktree_wip { bg=#A878F51A }
@@ -804,16 +804,7 @@ def GraphItem(lane_c0="", lane_c1="", lane_c2="", lane_c3="", lane_c4="", lane_c
         }
       }
       stack w=fill h=fill clip {
-        when hover {
-          bg=#111111
-          row w=param.message_width h=fill pad=0,6 align=center pack=end inert {
-            when !truncated { opacity=0 }
-            row w=hug h=18 pad=0,5 radius=3 bg=#111111 align=center {
-              when selected { bg=color.selected }
-              text "…" style=text.ui size=11.5 color=color.dim nowrap
-            }
-          }
-        }
+        when hover { bg=#111111 }
         when selected { bg=color.transparent }
         when matched { bg=#DEC45012 }
         when current_match { bg=#DEC45026 }
@@ -828,10 +819,13 @@ def GraphItem(lane_c0="", lane_c1="", lane_c2="", lane_c3="", lane_c4="", lane_c
         row w=fill h=fill align=center {
           row w=param.message_width h=fill pad=0,8 gap=7 align=center clip {
             each message_chips #graph-message-chips
-            text subject style=text.ui size=11.5 color=color.muted nowrap {
-              when selected { color=color.accent }
+            para w=fill nowrap ellipsis {
+              span subject style=text.ui size=11.5 color=color.muted {
+                when selected { color=color.accent }
+              }
+              span "  " style=text.ui size=11.5
+              span description style=text.small size=10.5 color=color.dim
             }
-            text description style=text.small size=10.5 color=color.dim nowrap
             when has_modified {
               row h=fill gap=3 align=center {
                 Codicon "" 11.5 color.dim

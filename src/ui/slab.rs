@@ -1654,7 +1654,6 @@ fn graph_rows(state: &AppState) -> Vec<GraphRowsItem> {
         item.refs = commit_ref_chips(commit, ref_width);
         item.subject.clone_from(&commit.subject);
         item.description.clone_from(&commit.description);
-        item.truncated = message_truncated(&commit.subject, &commit.description, message_width);
         item.band_mark = true;
         item.date = if state.settings.show_commit_date {
             // Matches HEAD's format_time_for_width: the column text bounds
@@ -1744,32 +1743,9 @@ fn graph_item(key: String, node_x: f32, node_tone: u32, graph_width: f32) -> Gra
         modified_count: String::new(),
         has_added: false,
         added_count: String::new(),
-        truncated: false,
     }
 }
 
-/// Mirrors HEAD's `truncated_text` reveal predicate (views/graph.rs draw +
-/// ui/widgets.rs): Sans runs estimate 0.52em per char; the subject starts at
-/// `column.x + 8` inside text bounds inset 4px each side, and the dimmed
-/// description follows the subject's advance plus a 14px gutter, drawn only
-/// when at least 24px of the column remain. The reveal affordance triggers
-/// when either drawn run overflows its available width.
-fn message_truncated(subject: &str, description: &str, message_width: f32) -> bool {
-    let subject_est = subject.chars().count().to_f32().unwrap_or(f32::MAX) * (11.5 * 0.52);
-    let subject_avail = (message_width - 12.0).max(0.0);
-    if subject_est > subject_avail {
-        return true;
-    }
-    if description.is_empty() {
-        return false;
-    }
-    let description_x = subject_est + 22.0;
-    if description_x >= message_width - 28.0 {
-        return false;
-    }
-    let description_est = description.chars().count().to_f32().unwrap_or(f32::MAX) * (10.5 * 0.52);
-    description_est > message_width - 4.0 - description_x
-}
 
 #[derive(Clone, Copy)]
 struct GraphTrail {
