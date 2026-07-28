@@ -19,8 +19,7 @@ use crate::{
         state::{AppState, DiffTextPoint, FocusField, MainView, Overlay},
     },
     git::models::{
-        ChangeKind, CommitSummary, DiffDocument, DiffRow, DiffRowKind, DiffScope, FileChange,
-        RefKind,
+        ChangeKind, CommitSummary, DiffRow, DiffRowKind, DiffScope, FileChange, RefKind,
         RepoSnapshot, WorkingFile, WorktreeInfo,
     },
     graph::avatars,
@@ -173,10 +172,16 @@ struct DiffWindowKey {
     search_cursor: usize,
 }
 
-/// Inputs of the last built diff minimap projection.
+/// One minimap band: the row range it covers and its strongest change tone.
+struct DiffMapBand {
+    start: usize,
+    end: usize,
+    tone: u32,
+}
+
+/// Inputs of the last pushed diff minimap projection.
 #[derive(PartialEq)]
 struct DiffMapKey {
-    height_bits: u32,
     hunk_row: Option<usize>,
     selected: Vec<usize>,
 }
@@ -185,7 +190,7 @@ struct DiffMapKey {
 ///
 /// Large diffs would stall the frame loop if every row were pushed through
 /// the typed list reconciler, so only the rows inside the scrolled window
-/// (snapped to [`DIFF_WINDOW_BLOCK`] boundaries) live in `param.diff.rows`;
+/// (snapped to block boundaries) live in `param.diff.rows`;
 /// the `diff.pad_top`/`diff.pad_bottom` spacers keep the scroll extent equal
 /// to the full document, so kernel scrolling and the scrollbar stay exact.
 /// Everything here is derived state invalidated by `identity` or key changes.
@@ -204,6 +209,11 @@ struct DiffSync {
     search: Vec<(usize, u8, usize, usize)>,
     search_key: Option<(String, bool)>,
     window_key: Option<DiffWindowKey>,
+    /// Row ranges and tones of the minimap bands; scanning the rows to build
+    /// these is the one O(rows) step, so it is redone only when the document
+    /// or the minimap height changes — never on selection or hunk changes.
+    map_bands: Vec<DiffMapBand>,
+    map_bands_height: Option<u32>,
     map_key: Option<DiffMapKey>,
     map: Vec<DiffMapItem>,
 }
@@ -482,14 +492,13 @@ impl SlabDocument {
         self.doc
             .set_diff_search_open(state.focus == FocusField::DiffSearch);
         self.doc.set_diff_search(state.diff_search.text());
-        self.doc
-            .set_diff_search_count(&match diff_search_count {
-                0 => String::new(),
-                count => format!(
-                    "{} / {count}",
-                    state.diff_search_cursor.saturating_add(1).min(count)
-                ),
-            });
+        self.doc.set_diff_search_count(&match diff_search_count {
+            0 => String::new(),
+            count => format!(
+                "{} / {count}",
+                state.diff_search_cursor.saturating_add(1).min(count)
+            ),
+        });
         let diff_viewport_width =
             layout.center.width - if state.diff_file_view { 0.0 } else { 20.0 };
         self.sync_diff_scalars(state, diff_viewport_width.max(0.0));
@@ -690,7 +699,12 @@ impl SlabDocument {
             (start..end)
                 .map(|index| {
                     let (from, to) = sync.file_lines[index];
-                    file_view_row(&mut sync.runs, diff.path.as_path(), index, &content[from..to])
+                    file_view_row(
+                        &mut sync.runs,
+                        diff.path.as_path(),
+                        index,
+                        &content[from..to],
+                    )
                 })
                 .collect::<Vec<_>>()
         } else {
@@ -717,6 +731,10 @@ impl SlabDocument {
 
     /// Rebuilds the bucketized minimap when its inputs change and pushes the
     /// cached projection.
+    ///
+    /// Band geometry and tones are cached per document, so selection and
+    /// hunk changes only recompute the per-band `current` flag — O(bands),
+    /// never O(rows).
     fn sync_diff_map(&mut self, state: &AppState, viewport_height: f32) {
         let sync = &mut self.diff_sync;
         let renderable = sync
@@ -724,6 +742,8 @@ impl SlabDocument {
             .is_some_and(|identity| !identity.file_view && sync.total > 0);
         if !renderable {
             if sync.map_key.take().is_some() || !sync.map.is_empty() {
+                sync.map_bands.clear();
+                sync.map_bands_height = None;
                 sync.map.clear();
                 self.doc.set_diff_map(&[]);
             }
@@ -738,15 +758,40 @@ impl SlabDocument {
             0.0
         };
         let map_height = (viewport_height - 78.0 - 24.0 - search_height).max(1.0);
+        let height_bits = map_height.to_bits();
+        if sync.map_bands_height != Some(height_bits) {
+            sync.map_bands = diff_map_bands(&diff.rows, map_height);
+            sync.map_bands_height = Some(height_bits);
+            sync.map_key = None;
+        }
         let mut selected = state.diff_selected_rows.iter().copied().collect::<Vec<_>>();
         selected.sort_unstable();
         let key = DiffMapKey {
-            height_bits: map_height.to_bits(),
             hunk_row: diff.hunks.get(state.current_hunk).copied(),
             selected,
         };
         if sync.map_key.as_ref() != Some(&key) {
-            sync.map = diff_map_rows(diff, &key, map_height);
+            let extent =
+                f64::from(map_height) / sync.map_bands.len().to_f64().unwrap_or(1.0).max(1.0);
+            let mut selected = key.selected.iter().copied().peekable();
+            sync.map = sync
+                .map_bands
+                .iter()
+                .map(|band| {
+                    while selected.peek().is_some_and(|&row| row < band.start) {
+                        selected.next();
+                    }
+                    DiffMapItem {
+                        key: Some(format!("diff-map:{}", band.start)),
+                        tone: band.tone,
+                        extent,
+                        current: key
+                            .hunk_row
+                            .is_some_and(|row| (band.start..band.end).contains(&row))
+                            || selected.peek().is_some_and(|&row| row < band.end),
+                    }
+                })
+                .collect();
             sync.map_key = Some(key);
         }
         self.doc.set_diff_map(&sync.map);
@@ -3604,11 +3649,14 @@ fn diff_content_width(state: &AppState, viewport_width: f32, max_columns: usize)
 
 /// Block-snapped half-open row window for the scrolled diff viewport.
 ///
-/// Snapping to block boundaries makes ordinary scrolling free — the pushed
-/// window only changes when the viewport crosses a block — and the flanking
-/// blocks double as overscan so pointer hits always land on pushed rows.
+/// Snapping the edges to `BLOCK` boundaries makes ordinary scrolling free —
+/// the pushed window only changes once the viewport crosses a block — while
+/// `OVERSCAN` keeps pushed rows under the pointer during a fast fling. Both
+/// stay small because every row in the window is a solved subtree, so window
+/// size is the dominant per-frame scene cost on a large diff.
 fn diff_window(scroll: f64, viewport_height: f32, total: usize) -> (usize, usize) {
-    const BLOCK: usize = 32;
+    const BLOCK: usize = 16;
+    const OVERSCAN: usize = 8;
     let row_height = f64::from(layout::DIFF_ROW_HEIGHT);
     let first = (scroll.max(0.0) / row_height)
         .floor()
@@ -3619,10 +3667,10 @@ fn diff_window(scroll: f64, viewport_height: f32, total: usize) -> (usize, usize
         .to_usize()
         .unwrap_or(0)
         .saturating_add(1);
-    let start = (first.saturating_sub(BLOCK) / BLOCK * BLOCK).min(total);
+    let start = (first.saturating_sub(OVERSCAN) / BLOCK * BLOCK).min(total);
     let end = first
         .saturating_add(visible)
-        .saturating_add(BLOCK)
+        .saturating_add(OVERSCAN)
         .div_ceil(BLOCK)
         .saturating_mul(BLOCK)
         .min(total);
@@ -3667,27 +3715,25 @@ fn file_view_row(
     }
 }
 
-/// Bucketizes diff rows into at most one minimap band per pixel row, so the
-/// minimap costs O(map height) instead of O(rows) to lay out and paint.
-fn diff_map_rows(
-    diff: &DiffDocument,
-    key: &DiffMapKey,
-    map_height: f32,
-) -> Vec<DiffMapItem> {
-    let total = diff.rows.len();
-    let buckets = total
-        .min(map_height.floor().to_usize().unwrap_or(1))
+/// Bucketizes diff rows into minimap bands, one per two pixels of minimap
+/// height, so the minimap costs O(map height) to lay out and paint instead of
+/// O(rows). This is the only scan of the full row list; the per-frame
+/// projection reuses these bands.
+fn diff_map_bands(rows: &[DiffRow], map_height: f32) -> Vec<DiffMapBand> {
+    let total = rows.len();
+    // The minimap is 20px wide, so finer bands buy no legibility and every
+    // band is a solved scene node.
+    let bands = total
+        .min((map_height / 2.0).floor().to_usize().unwrap_or(1))
         .max(1);
-    let extent = f64::from(map_height) / buckets.to_f64().unwrap_or(1.0);
-    let mut selected = key.selected.iter().copied().peekable();
-    (0..buckets)
-        .map(|bucket| {
-            let start = bucket * total / buckets;
-            let end = ((bucket + 1) * total / buckets)
+    (0..bands)
+        .map(|band| {
+            let start = band * total / bands;
+            let end = ((band + 1) * total / bands)
                 .max(start.saturating_add(1))
                 .min(total);
-            // The strongest change in the bucket wins its pixel band.
-            let tone = diff.rows[start..end]
+            // The strongest change in the band wins its pixel row.
+            let tone = rows[start..end]
                 .iter()
                 .map(|row| match row.kind {
                     DiffRowKind::Changed => (4_u8, ORANGE_SOFT),
@@ -3698,17 +3744,7 @@ fn diff_map_rows(
                 })
                 .max_by_key(|(rank, _)| *rank)
                 .map_or(TRANSPARENT, |(_, tone)| tone);
-            while selected.peek().is_some_and(|&row| row < start) {
-                selected.next();
-            }
-            let current = key.hunk_row.is_some_and(|row| (start..end).contains(&row))
-                || selected.peek().is_some_and(|&row| row < end);
-            DiffMapItem {
-                key: Some(format!("diff-map:{start}")),
-                tone,
-                extent,
-                current,
-            }
+            DiffMapBand { start, end, tone }
         })
         .collect()
 }
@@ -3811,7 +3847,11 @@ fn diff_row_item(
             }
             DiffRowKind::Hunk => unreachable!("hunk rows return above"),
         };
-        let slot = if side == 0 { RUN_SLOT_OLD } else { RUN_SLOT_NEW };
+        let slot = if side == 0 {
+            RUN_SLOT_OLD
+        } else {
+            RUN_SLOT_NEW
+        };
         unified_runs = cached_runs(runs, path, index, slot, text);
         unified_marks = diff_marks(state, index, side, text, intraline, tone, search_results);
     }
@@ -4849,6 +4889,40 @@ mod tests {
 
     use super::*;
 
+    /// The pushed window must always cover the visible viewport with overscan
+    /// on both sides and stay inside the document, at any scroll depth. A gap
+    /// here renders as blank rows mid-scroll.
+    #[test]
+    fn diff_window_covers_the_viewport_at_every_depth() {
+        let row = f64::from(layout::DIFF_ROW_HEIGHT);
+        let total = 40_000;
+        let viewport = 760.0_f32;
+        let visible = (f64::from(viewport) / row).ceil().to_usize().unwrap_or(0);
+
+        for scroll_row in [0_usize, 1, 15, 16, 17, 5_000, 39_960, 39_999] {
+            let scroll = scroll_row.to_f64().unwrap_or(0.0) * row;
+            let (start, end) = diff_window(scroll, viewport, total);
+            assert!(start <= end && end <= total, "bounds at row {scroll_row}");
+            assert!(
+                start <= scroll_row,
+                "row {scroll_row} precedes window start"
+            );
+            let last_visible = scroll_row.saturating_add(visible).min(total);
+            assert!(end >= last_visible, "window ends before viewport bottom");
+        }
+
+        // Past the end of a short document the window collapses, never wraps.
+        let (start, end) = diff_window(1_000_000.0, viewport, 10);
+        assert_eq!((start, end), (10, 10));
+
+        // Scrolling within one block reuses the same window, which is what
+        // makes ordinary wheel scrolling free.
+        assert_eq!(
+            diff_window(0.0, viewport, total),
+            diff_window(row, viewport, total)
+        );
+    }
+
     fn workspace_state() -> AppState {
         let mut state = AppState::new(None, 1_600, 1_000, None);
         let path = PathBuf::from("/tmp/kraken-slab-test");
@@ -4894,6 +4968,7 @@ mod tests {
             loaded_limit: 200,
             has_more: false,
             refs_sig: 0,
+            remote_url: None,
         });
         state
     }
