@@ -42,7 +42,7 @@ tokens {
     label   { family "Instrument Sans"; size 10; weight 600; color #A3A3A3 }
     heading { family "Instrument Sans"; size 16; weight 600; color #E5E5E5 }
     title   { family "Instrument Sans"; size 20; weight 600; color #E5E5E5 }
-    mono    { family "JetBrainsMono Nerd Font Mono"; size 11; weight 450; color #E5E5E5 }
+    mono    { family "BerkeleyMono Nerd Font Mono"; size 11; weight 450; color #E5E5E5 }
   }
   shadow {
     menu 0,12,36,#000000AA

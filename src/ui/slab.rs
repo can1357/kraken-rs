@@ -36,7 +36,7 @@ slab_macro::include_doc!(
     generated,
     "ui/app.slab",
     "Instrument Sans" = "assets/fonts/InstrumentSans.ttf",
-    "JetBrainsMono Nerd Font Mono" = "assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf",
+    "BerkeleyMono Nerd Font Mono" = "assets/fonts/BerkeleyMonoNerdFontMono-Medium.ttf",
 );
 
 use generated::{
@@ -1777,7 +1777,6 @@ fn graph_item(key: String, node_x: f32, node_tone: u32, graph_width: f32) -> Gra
     }
 }
 
-
 #[derive(Clone, Copy)]
 struct GraphTrail {
     base_width: f32,
@@ -1894,7 +1893,7 @@ fn apply_lane_ink(item: &mut GraphRowsItem, incoming: &[LaneLink], outgoing: &[L
     }
 }
 
-/// Mono lead advance for the 10.5px check glyph (JetBrains mono = 0.6em),
+/// Mono lead advance for the 10.5px check glyph (Berkeley Mono = 0.6em),
 /// carved out of HEAD's 6.2/char label estimate when the chip is checked out.
 const CHECK_LEAD_WIDTH: f32 = 6.3;
 
@@ -4626,8 +4625,8 @@ const fn rgba(red: u8, green: u8, blue: u8, alpha: u8) -> u32 {
 mod tests {
     use std::path::PathBuf;
 
-    use slab_kernel::dispatch::{E_POINTER_DOWN, E_POINTER_MOVE, E_POINTER_UP, E_TEXT};
     use slab_drive::RequestPump;
+    use slab_kernel::dispatch::{E_POINTER_DOWN, E_POINTER_MOVE, E_POINTER_UP, E_TEXT};
 
     use crate::git::models::{
         BranchInfo, CommitSummary, DiffDocument, DiffRequest, RepoSnapshot, WorkingFile,
@@ -4736,7 +4735,7 @@ mod tests {
             .scene
             .iter()
             .find_map(|node| {
-                let key = slab_kernel::scene::key_of(&inst.doc, &inst.st.lists, node.node);
+                let key = slab_kernel::scene::key_of(inst.doc(), &inst.st.lists, node.node);
                 (key.ends_with(suffix) && node.w > 0.0 && node.h > 0.0)
                     .then_some((node.x + node.w / 2.0, node.y + node.h / 2.0))
             })
@@ -4804,9 +4803,7 @@ mod tests {
             result.response
         );
         for effects in &result.effects {
-            assert!(document
-                .apply_drive_effects(&mut state, effects)
-                .is_empty());
+            assert!(document.apply_drive_effects(&mut state, effects).is_empty());
         }
         assert!(state.preferences_open);
     }

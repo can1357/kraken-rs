@@ -37,9 +37,9 @@ def GraphRefChip(label="", show_label=true, label_w=0, lead="", show_lead=false,
       // the base children, so mixing a base label with a deferred lead would
       // paint `main ✓` instead of HEAD's `✓ main`. All-deferred children
       // splice in lexical order, keeping lead → label → trail.
-      when show_lead { text lead family="JetBrainsMono Nerd Font Mono" size=lead_size weight=400 color=lead_tone nowrap }
+      when show_lead { text lead family="BerkeleyMono Nerd Font Mono" size=lead_size weight=400 color=lead_tone nowrap }
       when show_label { text label w=label_w size=10.5 leading=1.15 color=tone nowrap }
-      when show_trail_icons { text trail family="JetBrainsMono Nerd Font Mono" size=9.5 weight=400 color=color.dim nowrap }
+      when show_trail_icons { text trail family="BerkeleyMono Nerd Font Mono" size=9.5 weight=400 color=color.dim nowrap }
     }
   }
 }

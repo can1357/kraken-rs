@@ -36,7 +36,7 @@ winit input ─► slab_kernel dispatch ─► UiAction (src/ui/slab.rs)
 | `src/gpu/` | Windowed and offscreen `wgpu` renderers |
 | `src/term/` | PTY spawning, VTE grid, terminal hole mounted in the Slab UI |
 | `ui/` | `app.slab` — the authoritative declarative UI |
-| `assets/fonts/` | Instrument Sans (UI) and JetBrains Mono Nerd Font (code, icons) |
+| `assets/fonts/` | Instrument Sans (UI) and Berkeley Mono Nerd Font (code, icons) |
 | `.omp/tools/` | `kraken-qa.ts` — QA driver for the automation protocol |
 
 ## Development Commands

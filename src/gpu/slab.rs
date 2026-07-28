@@ -1,4 +1,5 @@
 use anyhow::{Result, bail};
+use slab_drive::{PumpHostAction, PumpHostEvent, PumpResponse, RequestPump};
 use slab_kernel::{
     dispatch::{
         E_BLUR, E_COMPOSITION_END, E_COMPOSITION_START, E_COMPOSITION_UPDATE, E_COPY, E_CUT,
@@ -9,7 +10,6 @@ use slab_kernel::{
     frame::{self as kframe, HoleRect},
 };
 use slab_native::{RegisteredFont, holes::HoleContent, renderer::LayerInput};
-use slab_drive::{PumpHostAction, PumpHostEvent, PumpResponse, RequestPump};
 
 use crate::{
     app::state::{AppState, MainView},
@@ -44,8 +44,8 @@ const APP_FONTS: [(&str, &[u8]); 2] = [
         include_bytes!("../../assets/fonts/InstrumentSans.ttf"),
     ),
     (
-        "JetBrainsMono Nerd Font Mono",
-        include_bytes!("../../assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf"),
+        "BerkeleyMono Nerd Font Mono",
+        include_bytes!("../../assets/fonts/BerkeleyMonoNerdFontMono-Medium.ttf"),
     ),
 ];
 
@@ -90,9 +90,9 @@ impl SlabRenderer {
         );
         let terminal_hole = TerminalHole::new();
         let mut renderer = slab_native::renderer::Renderer::new(device, queue);
-        let doc_id = renderer.register_doc(&document.doc.inst.doc, &document.doc.imgs, &app_fonts);
+        let doc_id = renderer.register_doc(document.doc.inst.doc(), &document.doc.imgs, &app_fonts);
         let terminal_doc_id = renderer.register_doc(
-            &terminal_hole.instance().doc,
+            terminal_hole.instance().doc(),
             &[],
             terminal_hole.registered_fonts(),
         );
@@ -252,7 +252,6 @@ impl SlabRenderer {
         }
         (self.dispatch(state, event), false)
     }
-
 
     /// Returns selected text from the focused root-document editor.
     pub(crate) fn selected_text(&self) -> Option<String> {

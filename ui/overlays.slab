@@ -127,7 +127,7 @@ def BranchMenuRow(icon="", branch_name="", current=false) export {
   row w=fill h=28 pad=0,8 radius=3 align=center color=color.muted act=overlay-row {
     when hover { bg=#111111; color=color.text }
     when current { bg=color.selected; color=color.accent }
-    text icon family="JetBrainsMono Nerd Font Mono" size=12 weight=400 color=color.muted w=20 nowrap {
+    text icon family="BerkeleyMono Nerd Font Mono" size=12 weight=400 color=color.muted w=20 nowrap {
       when current { color=color.accent }
     }
     text branch_name family="Instrument Sans" size=13 weight=450 w=fill nowrap ellipsis
@@ -293,7 +293,7 @@ def Palette() {
       row h=32 bg=color.panelAlt pad=0,12 align=center {
         text param.palette.hint style=text.small color=color.muted nowrap
         spacer
-        text "↑↓ Navigate  ↵ Select" style=text.small color=color.dim nowrap
+        text "↑↓ Navigate  Enter Select" style=text.small color=color.dim nowrap
       }
     }
   }

@@ -65,9 +65,9 @@ pub(crate) struct TerminalHole {
 
 impl TerminalHole {
     pub(crate) fn new() -> Self {
-        let mut inst = kframe::inst_shell();
-        inst.doc.ok = true;
-        kframe::inst_init(&mut inst);
+        let mut doc = slab_kernel::slir::doc_new();
+        doc.ok = true;
+        let mut inst = kframe::inst_from_doc(doc);
         let (regular_font, regular) = register_font(&mut inst, 400);
         let (bold_font, bold) = register_font(&mut inst, 700);
         Self {
@@ -147,8 +147,8 @@ impl TerminalHole {
 
     fn cell_width(&self) -> f64 {
         let index = self.regular_font.max(0) as usize;
-        let upem = self.inst.doc.font_upem[index].max(1) as f64;
-        self.inst.doc.font_default_adv[index] as f64 * self.font_size / upem
+        let upem = self.inst.doc().font_upem[index].max(1) as f64;
+        self.inst.doc().font_default_adv[index] as f64 * self.font_size / upem
     }
 
     fn cell_height(&self) -> f64 {
@@ -660,9 +660,9 @@ impl TerminalHole {
 
     fn baseline(&self, font: i32) -> f64 {
         let index = font.max(0) as usize;
-        let upem = self.inst.doc.font_upem[index].max(1) as f64;
-        let ascent = self.inst.doc.font_ascent[index] as f64 * self.font_size / upem;
-        let descent = self.inst.doc.font_descent[index] as f64 * self.font_size / upem;
+        let upem = self.inst.doc().font_upem[index].max(1) as f64;
+        let ascent = self.inst.doc().font_ascent[index] as f64 * self.font_size / upem;
+        let descent = self.inst.doc().font_descent[index] as f64 * self.font_size / upem;
         let ink_height = ascent - descent;
         (self.cell_height() - ink_height) * 0.5 + ascent
     }

@@ -14,7 +14,7 @@ def StatusBar() {
     spacer w=6
     row#branches-anchor w=hug h=20 radius=3 pad=0,6 gap=5 align=center act=toggle-branch-menu role="button" label="Switch branch" color=color.muted {
       when hover { bg=color.hover; color=color.text }
-      text "" family="JetBrainsMono Nerd Font Mono" size=11 nowrap
+      text "" family="BerkeleyMono Nerd Font Mono" size=11 nowrap
       text param.branch_name family="Instrument Sans" size=11 weight=450 nowrap
     }
     spacer w=6

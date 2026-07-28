@@ -20,7 +20,7 @@ params diff {
 
 // ---------- diff ----------
 def DiffTextRun(content="", tone=#E5E5E5) export {
-  span content color=tone size=11 weight=450 family="JetBrainsMono Nerd Font Mono" tracking=0
+  span content color=tone size=11 weight=450 family="BerkeleyMono Nerd Font Mono" tracking=0
 }
 
 def DiffMark(x=0, width=0, tone=#00000000, current=false) export {
@@ -117,7 +117,7 @@ def DiffHunkBtn(glyph="", action="noop", tip="") {
   stack w=36 h=28 radius=3 act=action role="button" label=tip color=color.muted {
     when hover { bg=color.hover; color=color.text }
     when diff.file_view { bg=color.transparent; color=color.disabled }
-    text glyph family="JetBrainsMono Nerd Font Mono" size=13 weight=400 self=center nowrap
+    text glyph family="BerkeleyMono Nerd Font Mono" size=13 weight=400 self=center nowrap
   }
 }
 
@@ -167,14 +167,14 @@ def DiffToolbarMain() {
         row w=fill h=fill radius=2 align=center pack=center color=color.muted {
           when hover { bg=color.hover }
           when !diff.split { bg=color.surface; stroke=color.borderStrong stroke-w=1; color=color.text }
-          text "" family="JetBrainsMono Nerd Font Mono" size=13 weight=400 nowrap
+          text "" family="BerkeleyMono Nerd Font Mono" size=13 weight=400 nowrap
         }
       }
       stack w=46 h=28 pad=2 act=toggle-diff-layout role="button" label="Split diff layout" {
         row w=fill h=fill radius=2 align=center pack=center color=color.muted {
           when hover { bg=color.hover }
           when diff.split { bg=color.surface; stroke=color.borderStrong stroke-w=1; color=color.text }
-          text "" family="JetBrainsMono Nerd Font Mono" size=13 weight=400 nowrap
+          text "" family="BerkeleyMono Nerd Font Mono" size=13 weight=400 nowrap
         }
       }
     }

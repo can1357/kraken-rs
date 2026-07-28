@@ -191,4 +191,3 @@ impl WindowRenderer {
         }
     }
 }
-

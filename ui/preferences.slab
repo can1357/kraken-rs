@@ -62,11 +62,11 @@ def PreferenceItem(label="", description="", has_description=false, disabled=fal
           text number_value style=text.mono color=color.muted w=fill pad=6,8 nowrap
           stack w=24 h=24 radius=4 bg=color.panelAlt stroke=color.borderStrong stroke-w=1 act="preference-dec" focusable role="button" label="Decrease" {
             when hover { bg=color.surface; stroke=color.borderHard }
-            text "" family="JetBrainsMono Nerd Font Mono" size=13 weight=400 color=color.text self=center nowrap
+            text "" family="BerkeleyMono Nerd Font Mono" size=13 weight=400 color=color.text self=center nowrap
           }
           stack w=24 h=24 radius=4 bg=color.panelAlt stroke=color.borderStrong stroke-w=1 act="preference-inc" focusable role="button" label="Increase" {
             when hover { bg=color.surface; stroke=color.borderHard }
-            text "" family="JetBrainsMono Nerd Font Mono" size=13 weight=400 color=color.text self=center nowrap
+            text "" family="BerkeleyMono Nerd Font Mono" size=13 weight=400 color=color.text self=center nowrap
           }
         }
       }

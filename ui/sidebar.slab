@@ -56,11 +56,11 @@ def SidebarSection(title="", count="", caret="", open=false, add_remote=false, b
         stack w=16 h=16 radius=3 clip act=open-add-remote role="button" label="Add remote" color=color.transparent {
           when !add_remote { w=0; inert }
           when hover { bg=color.hover; stroke=color.borderStrong; stroke-w=1; color=color.dim }
-          text "" family="JetBrainsMono Nerd Font Mono" size=10 self=center nowrap
+          text "" family="BerkeleyMono Nerd Font Mono" size=10 self=center nowrap
         }
         rect w=8 h=1 { when !add_remote { w=0 } }
         row w=30 h=fill align=center clip {
-          text count family="JetBrainsMono Nerd Font Mono" size=10 color=color.dim nowrap
+          text count family="BerkeleyMono Nerd Font Mono" size=10 color=color.dim nowrap
         }
       }
     }
@@ -78,9 +78,9 @@ def SidebarRailEntry(icon="", title="", count="", show_count=false) export {
   col w=32 h=36 {
     stack w=32 h=32 radius=4 clip act=expand-sidebar-section role="button" label=title {
       when hover { bg=color.hover }
-      text icon family="JetBrainsMono Nerd Font Mono" size=14 weight=400 color=color.dim self=top-start offset=8,7 nowrap
+      text icon family="BerkeleyMono Nerd Font Mono" size=14 weight=400 color=color.dim self=top-start offset=8,7 nowrap
       when show_count {
-        text count family="JetBrainsMono Nerd Font Mono" size=8 color=color.muted self=top-start offset=21,16 nowrap
+        text count family="BerkeleyMono Nerd Font Mono" size=8 color=color.muted self=top-start offset=21,16 nowrap
       }
     }
   }
@@ -92,7 +92,7 @@ def Sidebar() {
       col w=44 h=fill pad=12,6,0,6 gap=4 align=center {
         stack w=26 h=26 radius=3 act=toggle-sidebar-collapse role="button" label="Expand sidebar" {
           when hover { bg=color.hover }
-          text "" family="JetBrainsMono Nerd Font Mono" size=13 color=color.muted self=top-start offset=8,4 nowrap
+          text "" family="BerkeleyMono Nerd Font Mono" size=13 color=color.muted self=top-start offset=8,4 nowrap
         }
         rect h=4
         each param.sidebar.rail #sidebar-rail
@@ -103,7 +103,7 @@ def Sidebar() {
         row h=38 pad=12,12,0,10 gap=8 align=center {
           stack w=26 h=26 radius=3 act=toggle-sidebar-collapse role="button" label="Collapse sidebar" {
             when hover { bg=color.hover }
-            text "" family="JetBrainsMono Nerd Font Mono" size=13 color=color.muted self=top-start offset=8,4 nowrap
+            text "" family="BerkeleyMono Nerd Font Mono" size=13 color=color.muted self=top-start offset=8,4 nowrap
           }
           row w=fill h=26 radius=4 bg=color.panelAlt pad=2 {
             row w=50% h=fill radius=3 bg=color.surface stroke=color.borderStrong stroke-w=1 pad=0,0,0,32 gap=8 align=center act=show-list role="button" label="List" {
@@ -127,9 +127,9 @@ def Sidebar() {
             when hover { stroke=color.borderHard }
             stack w=fill h=fill {
               when branch.filter_empty {
-                text "FILTER (󰘳+OPTION+F)" family="JetBrainsMono Nerd Font Mono" size=10 color=color.dim nowrap
+                text "FILTER (󰘳+OPTION+F)" family="BerkeleyMono Nerd Font Mono" size=10 color=color.dim nowrap
               }
-              text param.branch.filter family="JetBrainsMono Nerd Font Mono" size=10 color=color.text w=fill h=fill nowrap field=change-branch-filter
+              text param.branch.filter family="BerkeleyMono Nerd Font Mono" size=10 color=color.text w=fill h=fill nowrap field=change-branch-filter
             }
             row w=12 h=fill align=center { Codicon "" 13 color.dim }
           }
