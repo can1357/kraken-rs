@@ -77,7 +77,7 @@ fn register_app_fonts(inst: &mut kframe::Instance) -> Vec<RegisteredFont> {
 }
 
 impl SlabRenderer {
-    /// Decodes the build-generated SLIR with Slab's matching bundled font faces.
+    /// Decodes the macro-generated SLIR and registers the byte-backed app faces.
     pub(crate) fn new(device: wgpu::Device, queue: wgpu::Queue) -> Result<Self> {
         let mut document = SlabDocument::new(generated::Doc::new());
         let app_fonts = register_app_fonts(&mut document.doc.inst);

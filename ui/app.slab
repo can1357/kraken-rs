@@ -1643,7 +1643,7 @@ def PreferenceNavItem(label="General", header=false, selected=false, disabled=fa
   }
 }
 
-def PreferenceItem(label="", description="", disabled=false, is_toggle=false, checked=false, is_number=false, number_value="", is_field=false, field_value="", field_placeholder="", field_browse_label="", has_browse=false, is_button=false, button_label="") export {
+def PreferenceItem(label="", description="", has_description=false, disabled=false, is_toggle=false, checked=false, is_number=false, number_value="", is_field=false, field_value="", field_placeholder="", field_browse_label="", has_browse=false, is_button=false, button_label="") export {
   col w=fill h=hug min-h=32 gap=4 {
     when disabled { opacity=0.45 }
     when is_toggle {
@@ -1682,7 +1682,7 @@ def PreferenceItem(label="", description="", disabled=false, is_toggle=false, ch
         row w=hug h=30 { TextButton button_label "preference-action" }
       }
     }
-    when description { text description style=text.small color=color.muted w=700 }
+    when has_description { text description style=text.small color=color.muted w=700 }
   }
 }
 
@@ -1798,14 +1798,14 @@ def PaletteItem(icon="", label="", hint="", selected=false, disabled=false) expo
 // 320x520 panel at (128,48) with 8px inset, 32px search well, dim BRANCHES
 // caption, then 28px rows (codicon + name; current row keeps the selected
 // fill even under hover).
-def BranchMenuRow(icon="", label="", current=false) export {
+def BranchMenuRow(icon="", branch_name="", current=false) export {
   row w=fill h=28 pad=0,8 radius=3 align=center color=color.muted act=overlay-row {
     when hover { bg=#111111; color=color.text }
     when current { bg=color.selected; color=color.accent }
     text icon family="JetBrainsMono Nerd Font Mono" size=12 weight=400 color=color.muted w=20 nowrap {
       when current { color=color.accent }
     }
-    text label family="Instrument Sans" size=13 weight=450 w=fill nowrap ellipsis
+    text branch_name family="Instrument Sans" size=13 weight=450 w=fill nowrap ellipsis
   }
 }
 

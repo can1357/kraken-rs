@@ -16,7 +16,7 @@ winit input ─► slab_kernel dispatch ─► UiAction (src/ui/slab.rs)
 
 - All UI interactions become `UiAction` variants; `AppState` is the single state root.
 - Repository work never runs on the event loop. `GitRunner` (`src/git/runner.rs`) owns a worker thread, opens a fresh repo handle per job, and versions results so stale responses cannot overwrite newer UI state. Same pattern for AI (`src/app/ai.rs`), avatars (`src/graph/avatars.rs`), and the PTY reader (`src/term/pty.rs`).
-- `build.rs` compiles `ui/app.slab` plus the two fonts in `assets/fonts/` into `$OUT_DIR/app.rs` via `slab-compile`; `src/ui/slab.rs` includes it and bridges `AppState` to the document.
+- `slab_macro::include_doc!` in `src/ui/slab.rs` compiles `ui/app.slab` plus the two fonts in `assets/fonts/` into the typed `generated` module at macro expansion time; the font pairs keep glyph ids aligned with the faces `src/gpu/slab.rs` registers. There is no `build.rs`.
 
 ### Adding a feature
 
@@ -68,7 +68,7 @@ cargo run --release -- --repo <path> --automation-port 0
 - `src/main.rs` — CLI (`clap`), repo discovery, `LaunchOptions`, hands off to `app::run`.
 - `src/app/state.rs` — `AppState`, `Overlay`, `FocusField`, `AppState::dispatch`.
 - `src/ui/action.rs` / `src/ui/slab.rs` — action enum and Slab signal bridge.
-- `ui/app.slab` + `build.rs` — UI source and its compilation pipeline.
+- `ui/app.slab` + the `include_doc!` invocation in `src/ui/slab.rs` — UI source and its compilation pipeline.
 - `src/settings.rs` — `SettingsStore`; atomic TOML persistence under the platform config dir (`directories`).
 - `.cargo/config.toml` — local-only, gitignored `[patch]` mapping slab crates to `../slab-lang` (see below).
 - `codicon_mapping.json` — Nerd Font codepoint → icon name mapping.

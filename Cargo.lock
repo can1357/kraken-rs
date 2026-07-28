@@ -2065,9 +2065,9 @@ dependencies = [
  "serde",
  "serde_json",
  "similar",
- "slab-compile",
  "slab-fonts",
  "slab-kernel",
+ "slab-macro",
  "slab-native",
  "slab-slir",
  "syntect",
@@ -3786,12 +3786,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "slab-macro"
+version = "0.1.0"
+dependencies = [
+ "slab-compile",
+]
+
+[[package]]
 name = "slab-native"
 version = "0.1.0"
 dependencies = [
  "ab_glyph",
  "accesskit",
  "accesskit_winit",
+ "arboard",
  "bytemuck",
  "lyon",
  "png",

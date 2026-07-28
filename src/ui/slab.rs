@@ -32,10 +32,12 @@ use crate::{
     },
 };
 
-#[allow(clippy::all, dead_code)]
-pub(crate) mod generated {
-    include!(concat!(env!("OUT_DIR"), "/app.rs"));
-}
+slab_macro::include_doc!(
+    generated,
+    "ui/app.slab",
+    "Instrument Sans" = "assets/fonts/InstrumentSans.ttf",
+    "JetBrainsMono Nerd Font Mono" = "assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf",
+);
 
 use generated::{
     BranchRowsItem, DetailCommitsItem, DetailConflictsItem, DetailFilesItem, DetailParentsItem,
@@ -4103,6 +4105,7 @@ fn pref_toggle(key: &str, label: &str, checked: bool) -> PreferenceRowsItem {
         key: Some(key.to_owned()),
         label: label.to_owned(),
         description: String::new(),
+        has_description: false,
         disabled: false,
         is_toggle: true,
         checked,
@@ -4123,6 +4126,7 @@ fn pref_number(key: &str, label: &str, value: String) -> PreferenceRowsItem {
         key: Some(key.to_owned()),
         label: label.to_uppercase(),
         description: String::new(),
+        has_description: false,
         disabled: false,
         is_toggle: false,
         checked: false,
@@ -4143,6 +4147,7 @@ fn pref_field(key: &str, label: &str, value: &str) -> PreferenceRowsItem {
         key: Some(key.to_owned()),
         label: label.to_uppercase(),
         description: String::new(),
+        has_description: false,
         disabled: false,
         is_toggle: false,
         checked: false,
@@ -4163,6 +4168,7 @@ fn pref_field_browse(key: &str, label: &str, value: &str, browse: &str) -> Prefe
         key: Some(key.to_owned()),
         label: label.to_uppercase(),
         description: String::new(),
+        has_description: false,
         disabled: false,
         is_toggle: false,
         checked: false,
@@ -4183,6 +4189,7 @@ fn pref_button(key: &str, label: &str, button_label: &str) -> PreferenceRowsItem
         key: Some(key.to_owned()),
         label: label.to_uppercase(),
         description: String::new(),
+        has_description: false,
         disabled: false,
         is_toggle: false,
         checked: false,
@@ -4425,7 +4432,7 @@ fn branch_menu_rows(state: &AppState) -> Vec<BranchRowsItem> {
                 crate::ui::icons::BRANCH
             }
             .to_owned(),
-            label: branch.name.clone(),
+            branch_name: branch.name.clone(),
             current: branch.current,
         })
         .collect()

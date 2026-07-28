@@ -16,6 +16,7 @@ slab-kernel = { git = "https://github.com/stencil-hq/slab.git", branch = "main" 
 slab-fonts = { git = "https://github.com/stencil-hq/slab.git", branch = "main" }
 slab-native = { git = "https://github.com/stencil-hq/slab.git", branch = "main" }
 slab-slir = { git = "https://github.com/stencil-hq/slab.git", branch = "main" }
+slab-macro = { git = "https://github.com/stencil-hq/slab.git", branch = "main" }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap = { version = "4.5", features = ["derive"] }
 crossbeam-channel = "0.5"
@@ -40,10 +41,6 @@ vte = "0.15"
 unicode-width = "0.2"
 wgpu = "30"
 winit = "0.30.12"
-
-[build-dependencies]
-slab-compile = { git = "https://github.com/stencil-hq/slab.git", branch = "main" }
-slab-slir = { git = "https://github.com/stencil-hq/slab.git", branch = "main" }
 
 [dev-dependencies]
 tempfile = "3.20"
