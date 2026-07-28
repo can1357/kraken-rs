@@ -65,6 +65,7 @@ stack#app w=fill h=fill bg=color.window clip {
             when sidebar_collapsed { inert }
           }
           col w=fill min-w=320 h=fill {
+            LoadingWave
             stack w=fill min-h=120 h=fill {
               when show_graph { GraphView }
               when show_diff { DiffView }

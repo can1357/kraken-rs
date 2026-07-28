@@ -147,7 +147,10 @@ impl RepoStore {
             loaded_limit: snapshot.loaded_limit.min(PERSIST_COMMITS),
             has_more: snapshot.has_more || snapshot.commits.len() > PERSIST_COMMITS,
             refs_sig: snapshot.refs_sig,
-            remote_url: snapshot.remote_url.clone(),
+            // Remote URLs can embed userinfo (`https://user:token@host/...`).
+            // Provisional hydration never reads this field, so the cache has
+            // no reason to hold a copy of a credential.
+            remote_url: None,
         })
     }
 

@@ -625,7 +625,7 @@ impl ApplicationHandler<UserEvent> for NativeApplication {
             WindowEvent::RedrawRequested => {
                 render_now(state, renderer);
                 self.next_animation_frame = state
-                    .diff_scroll_animating()
+                    .animating()
                     .then(|| Instant::now() + ANIMATION_FRAME_INTERVAL);
             }
             _ => {}
@@ -655,7 +655,7 @@ impl ApplicationHandler<UserEvent> for NativeApplication {
         if self
             .state
             .as_ref()
-            .is_none_or(|state| !state.diff_scroll_animating())
+            .is_none_or(|state| !state.animating())
         {
             self.next_animation_frame = None;
         }

@@ -1,3 +1,8 @@
+params wave {
+  active bool = false
+  segments list(WaveSegment) = []
+}
+
 // ---------- shared controls ----------
 def IconButton(icon, action, tip="") {
   stack w=30 h=30 radius=4 act=action focusable role="button" label=tip {
@@ -73,3 +78,16 @@ def Codicon(glyph="", size=14, tone=#A3A3A3) export {
   text glyph family="BerkeleyMono Nerd Font Mono" size=size weight=400 color=tone nowrap
 }
 
+// A hairline shimmer shown while Git work is in flight. Rust pushes one tone
+// per segment each animation frame; the alphas trace a sine travelling left
+// to right, so the strip reads as a wave rather than a spinner or a bar. The
+// strip keeps its 2px box when idle so nothing below it shifts.
+def WaveSegment(tone=#00000000) export {
+  rect w=fill h=8 bg=tone
+}
+
+def LoadingWave() {
+  row#loading-wave w=fill h=8 gap=0 {
+    rect w=fill h=8 bg=#A878F5
+  }
+}

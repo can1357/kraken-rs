@@ -2763,6 +2763,22 @@ impl AppState {
         self.diff_scroll_updated.is_some()
     }
 
+    /// True while repository work the user is waiting on is in flight.
+    ///
+    /// Drives the loading wave: queued jobs, an unfinished history page, and
+    /// the window where only the cached snapshot has been painted all count.
+    pub(crate) fn loading(&self) -> bool {
+        self.busy_jobs > 0 || self.loading_history || self.provisional
+    }
+
+    /// True while any animation needs another frame scheduled.
+    ///
+    /// The event loop arms its frame timer from this, so every animated
+    /// surface must be represented here or it freezes between input events.
+    pub(crate) fn animating(&self) -> bool {
+        self.diff_scroll_animating() || self.loading()
+    }
+
     pub(crate) fn advance_animations(&mut self) {
         let Some(updated) = self.diff_scroll_updated else {
             return;

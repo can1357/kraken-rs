@@ -42,7 +42,7 @@ use generated::{
     DiffMapItem, DiffRowsItem, DiffRowsOldMarksItem, DiffRowsOldRunsItem, GraphRowsItem,
     GraphRowsRefsItem, OverlayRowsChildrenItem, OverlayRowsItem, PaletteRowsItem, PrefProfilesItem,
     PreferenceNavItem, PreferenceRowsItem, RecentReposItem, SidebarRailItem, SidebarSectionsItem,
-    SidebarSectionsRowsItem, StagedFilesItem, TabsItem, UnstagedFilesItem,
+    SidebarSectionsRowsItem, StagedFilesItem, TabsItem, UnstagedFilesItem, WaveSegmentsItem,
 };
 
 const TRANSPARENT: u32 = rgba(0, 0, 0, 0);
@@ -564,6 +564,12 @@ impl SlabDocument {
                 .as_deref()
                 .unwrap_or("Ask Kraken AI about this repository."),
         );
+        let loading = state.loading();
+        self.doc.set_wave_active(loading);
+        if loading {
+            self.doc
+                .set_wave_segments(&wave_segments(state.animation_time()));
+        }
     }
 
     fn sync_diff_scalars(&mut self, state: &AppState, viewport_width: f32) {
@@ -1818,6 +1824,39 @@ fn sidebar_rail(state: &AppState) -> Vec<SidebarRailItem> {
         show_count: count > 0,
     })
     .collect()
+}
+
+/// Segments across the loading strip. Dense enough that the sine reads as a
+/// smooth gradient rather than discrete blocks at any pane width.
+const WAVE_SEGMENTS: usize = 64;
+/// Sine cycles visible across the pane at once.
+const WAVE_CYCLES: f32 = 2.0;
+/// Cycles travelled per second, left to right.
+const WAVE_SPEED: f32 = 0.55;
+/// Crest alpha. Deliberately low: the strip is a hint that work is in
+/// flight, not an announcement.
+const WAVE_PEAK_ALPHA: f32 = 0.45;
+
+/// Tones for one frame of the loading wave.
+///
+/// Alpha follows a sine travelling left to right, raised to a power so the
+/// troughs stay dark and the crest stays narrow — a swell moving under the
+/// toolbar rather than a bar that pulses in place.
+fn wave_segments(time: f32) -> Vec<WaveSegmentsItem> {
+    let count = WAVE_SEGMENTS.to_f32().unwrap_or(1.0);
+    (0..WAVE_SEGMENTS)
+        .map(|index| {
+            let position = index.to_f32().unwrap_or(0.0) / count;
+            let phase =
+                (position * WAVE_CYCLES - time * WAVE_SPEED) * std::f32::consts::TAU;
+            let swell = (0.5 + 0.5 * phase.sin()).powf(2.2);
+            let alpha = (swell * WAVE_PEAK_ALPHA * 255.0).to_u8().unwrap_or(0);
+            WaveSegmentsItem {
+                key: Some(format!("wave-{index}")),
+                tone: color_alpha(PURPLE, alpha.max(200)),
+            }
+        })
+        .collect()
 }
 
 fn graph_rows(state: &AppState) -> Vec<GraphRowsItem> {
