@@ -439,12 +439,17 @@ fn worker_loop(
                     wake_event_loop(event_loop_proxy, UserEvent::Git);
                 }
                 let result = execute(job, &mut stores).map_err(|error| format!("{error:#}"));
-                if let (Some(cache), Ok(payload)) = (cache.as_ref(), &result)
-                    && let Some(snapshot) = payload_snapshot(payload)
-                    && let Some(store) = stores.get_mut(&snapshot.path)
-                {
-                    store.persist_snapshot(cache, snapshot);
-                }
+                // Bounded cache value is prepared before the payload is handed
+                // over, then written after the wake: serialization and the
+                // LMDB commit must never sit in front of a paint.
+                let pending_cache = match (cache.as_ref(), result.as_ref()) {
+                    (Some(_), Ok(payload)) => payload_snapshot(payload).and_then(|snapshot| {
+                        stores
+                            .get(&snapshot.path)
+                            .and_then(|store| store.prepare_persist(snapshot))
+                    }),
+                    _ => None,
+                };
                 match (limit, &result) {
                     (Some(limit), Ok(payload)) => {
                         if let Some(snapshot) = payload_snapshot(payload) {
@@ -479,6 +484,11 @@ fn worker_loop(
                     break;
                 }
                 wake_event_loop(event_loop_proxy, UserEvent::Git);
+                if let (Some(cache), Some(snapshot)) = (cache.as_ref(), pending_cache)
+                    && let Some(store) = stores.get_mut(&snapshot.path)
+                {
+                    store.commit_persist(cache, &snapshot);
+                }
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,

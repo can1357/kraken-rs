@@ -34,6 +34,10 @@ use crate::git::models::{
 /// Longest commit description carried into graph rows.
 const DESCRIPTION_LIMIT: usize = 160;
 
+/// Commits kept in the cross-session cache: enough to fill the first paint,
+/// bounded so a deeply paged session cannot make the next launch slow.
+const PERSIST_COMMITS: usize = 500;
+
 /// Worker-thread cache for one repository; see the module docs.
 pub(crate) struct RepoStore {
     path: PathBuf,
@@ -108,16 +112,60 @@ impl RepoStore {
         }
     }
 
-    /// Writes `snapshot` to the cross-session cache so the next launch can
-    /// paint immediately. Repository state that has not moved since the last
-    /// write is skipped, keeping staging churn off the disk.
-    pub(crate) fn persist_snapshot(&mut self, cache: &SnapshotCache, snapshot: &RepoSnapshot) {
-        let marker = (snapshot.refs_sig, snapshot.working.clone());
-        if self.persisted.as_ref() == Some(&marker) {
-            return;
+    /// The bounded value to cache for `snapshot`, or `None` when the
+    /// repository state has not moved since the last write.
+    ///
+    /// Only the first [`PERSIST_COMMITS`] rows are kept. Paging history
+    /// raises the live snapshot depth to as much as 100k commits, and a warm
+    /// open would then have to decode and lay out every one of them before
+    /// painting — the opposite of the point. Deeper history is re-paged from
+    /// the repository once the real snapshot lands.
+    pub(crate) fn prepare_persist(&self, snapshot: &RepoSnapshot) -> Option<RepoSnapshot> {
+        let unchanged = self.persisted.as_ref().is_some_and(|(refs_sig, working)| {
+            *refs_sig == snapshot.refs_sig && *working == snapshot.working
+        });
+        if unchanged {
+            return None;
         }
+        // Built field by field so the bounded copy never clones the full
+        // commit vector on the way to being cut down.
+        Some(RepoSnapshot {
+            path: snapshot.path.clone(),
+            name: snapshot.name.clone(),
+            head: snapshot.head.clone(),
+            head_id: snapshot.head_id.clone(),
+            branches: snapshot.branches.clone(),
+            tags: snapshot.tags.clone(),
+            stashes: snapshot.stashes.clone(),
+            worktrees: snapshot.worktrees.clone(),
+            commits: snapshot
+                .commits
+                .get(..PERSIST_COMMITS)
+                .unwrap_or(&snapshot.commits)
+                .to_vec(),
+            working: snapshot.working.clone(),
+            loaded_limit: snapshot.loaded_limit.min(PERSIST_COMMITS),
+            has_more: snapshot.has_more || snapshot.commits.len() > PERSIST_COMMITS,
+            refs_sig: snapshot.refs_sig,
+            remote_url: snapshot.remote_url.clone(),
+        })
+    }
+
+    /// Writes a value from [`RepoStore::prepare_persist`] and records it, so
+    /// unchanged repository state skips later writes.
+    ///
+    /// Callers run this *after* handing the fresh snapshot to the UI:
+    /// serialization and the LMDB commit must never sit in front of a paint.
+    pub(crate) fn commit_persist(&mut self, cache: &SnapshotCache, snapshot: &RepoSnapshot) {
         if cache.store(&self.path, snapshot).is_ok() {
-            self.persisted = Some(marker);
+            self.persisted = Some((snapshot.refs_sig, snapshot.working.clone()));
+        }
+    }
+
+    /// Prepares and writes in one step, for callers not on a paint path.
+    pub(crate) fn persist_snapshot(&mut self, cache: &SnapshotCache, snapshot: &RepoSnapshot) {
+        if let Some(bounded) = self.prepare_persist(snapshot) {
+            self.commit_persist(cache, &bounded);
         }
     }
 
@@ -619,7 +667,8 @@ fn lossy(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::sort_branches;
-    use crate::git::models::BranchInfo;
+    use crate::git::models::{BranchInfo, CommitSummary, RepoSnapshot, WorkingTree};
+    use std::path::PathBuf;
 
     fn branch(name: &str) -> BranchInfo {
         BranchInfo {
@@ -714,6 +763,71 @@ mod tests {
         assert_eq!(staged.files[0].path.as_os_str(), name);
         assert_eq!(staged.files[0].staged, Some(ChangeKind::Added));
         assert_eq!(staged.files[0].unstaged, None);
+    }
+
+    /// Paging history deepens the live snapshot without deepening what the
+    /// next launch must decode and lay out before it can paint.
+    #[test]
+    fn persisted_snapshots_are_capped_at_the_first_paint_depth() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let cache = crate::git::cache::SnapshotCache::at(directory.path()).expect("open cache");
+        let repo = PathBuf::from("/tmp/deep");
+        let mut store = super::RepoStore::new(repo.clone());
+
+        let deep = super::PERSIST_COMMITS * 4;
+        let mut snapshot = paged_snapshot(&repo, deep);
+        snapshot.has_more = false;
+        store.persist_snapshot(&cache, &snapshot);
+
+        let loaded = cache.load(&repo).expect("cached after persist");
+        assert_eq!(loaded.commits.len(), super::PERSIST_COMMITS);
+        assert_eq!(loaded.loaded_limit, super::PERSIST_COMMITS);
+        assert!(loaded.has_more, "truncation is reported as more history");
+        assert_eq!(
+            loaded.commits[0].id, snapshot.commits[0].id,
+            "the newest rows are the ones kept"
+        );
+
+        // A snapshot within the bound is stored whole.
+        let mut store = super::RepoStore::new(repo.clone());
+        let shallow = paged_snapshot(&repo, 3);
+        store.persist_snapshot(&cache, &shallow);
+        let loaded = cache.load(&repo).expect("cached");
+        assert_eq!(loaded.commits.len(), 3);
+        assert!(!loaded.has_more);
+    }
+
+    fn paged_snapshot(repo: &std::path::Path, commits: usize) -> RepoSnapshot {
+        RepoSnapshot {
+            path: repo.to_path_buf(),
+            name: "deep".to_owned(),
+            head: "main".to_owned(),
+            head_id: None,
+            branches: Vec::new(),
+            tags: Vec::new(),
+            stashes: Vec::new(),
+            worktrees: Vec::new(),
+            commits: (0..commits)
+                .map(|index| CommitSummary {
+                    id: format!("{index:040}"),
+                    short_id: format!("{index:07}"),
+                    subject: "row".to_owned(),
+                    description: String::new(),
+                    author: "t".to_owned(),
+                    email: "t@t".to_owned(),
+                    authored_seconds: 0,
+                    parents: Vec::new(),
+                    is_local: true,
+                    refs: Vec::new(),
+                    branch_refs: Vec::new(),
+                })
+                .collect(),
+            working: WorkingTree::default(),
+            loaded_limit: commits,
+            has_more: false,
+            refs_sig: 1,
+            remote_url: None,
+        }
     }
 
     #[test]

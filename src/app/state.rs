@@ -1052,7 +1052,6 @@ impl AppState {
     /// Anything the user could trigger against stale rows is refused while
     /// [`AppState::provisional`] is set.
     fn hydrate_provisional(&mut self, snapshot: RepoSnapshot) {
-        eprintln!("[paint] cached at {:?}", self.started.elapsed());
         // A fresh snapshot that won the race outranks the cache.
         if self.snapshot.is_some() || self.repo_path.as_ref() != Some(&snapshot.path) {
             return;
@@ -1067,7 +1066,6 @@ impl AppState {
     }
 
     fn apply_snapshot(&mut self, snapshot: RepoSnapshot) {
-        eprintln!("[paint] fresh at {:?}", self.started.elapsed());
         self.provisional = false;
         self.repo_path = Some(snapshot.path.clone());
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {

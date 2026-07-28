@@ -41,7 +41,13 @@ const SNAPSHOT_DATABASE: &str = "snapshots";
 const SNAPSHOT_SCHEMA: &str = "v2";
 
 /// Avatar table name, keyed by the stable avatar key the graph requests.
-const AVATAR_DATABASE: &str = "avatars-v1";
+/// Stable for the same reason as [`SNAPSHOT_DATABASE`]: the version belongs
+/// in the directory, not the table name.
+const AVATAR_DATABASE: &str = "avatars";
+
+/// Directory component isolating one avatar encoding from the next. Images
+/// are self-describing, so this moves only if the key derivation changes.
+const AVATAR_SCHEMA: &str = "v1";
 
 /// Upper bound on the snapshot memory map. Snapshots run one to a few MiB
 /// each, so this holds a large working set of repositories without resizing.
@@ -131,10 +137,10 @@ impl AvatarCache {
     /// Opens the cache in the platform cache directory, or returns `None`
     /// when it is unavailable; avatars then refetch every session.
     pub(crate) fn platform() -> Option<Self> {
-        let directory = ProjectDirs::from("ac", "Kraken Native", "Kraken Native")?
+        let root = ProjectDirs::from("ac", "Kraken Native", "Kraken Native")?
             .cache_dir()
             .join("avatars");
-        Self::at(&directory).ok()
+        Self::at(&root.join(AVATAR_SCHEMA)).ok()
     }
 
     /// Opens (creating if needed) the LMDB environment rooted at `directory`.
@@ -172,6 +178,7 @@ impl AvatarCache {
 mod tests {
     use super::{AvatarCache, SnapshotCache};
     use crate::git::models::{RepoSnapshot, WorkingTree};
+    use heed::types::{Bytes, Str};
     use std::path::PathBuf;
 
     fn snapshot(head: &str) -> RepoSnapshot {
@@ -212,6 +219,7 @@ mod tests {
             "keys are per repository"
         );
     }
+
     /// A schema bump must yield a working, empty cache. Versioning by table
     /// name inside one environment could not do this: the environment allows
     /// a single named database, so the second name fails to open and the
@@ -240,24 +248,26 @@ mod tests {
             "old schema is left untouched"
         );
     }
-        previous.store(&repo, &snapshot("main")).expect("store");
-        drop(previous);
-        // Pre-versioning builds wrote the environment loose in the root.
-        std::fs::write(root.path().join("data.mdb"), b"legacy").expect("legacy file");
 
-        super::prune_stale_schemas(root.path(), "v2");
-        let current = SnapshotCache::at(&root.path().join("v2")).expect("open v2");
-        assert!(
-            current.load(&repo).is_none(),
-            "a bumped schema starts empty rather than mis-decoding"
-        );
-        current.store(&repo, &snapshot("release")).expect("store");
-        assert_eq!(current.load(&repo).expect("hit").head, "release");
+    /// Why both caches version by directory rather than by table name:
+    /// [`super::open_env`] admits exactly one named database, so a second
+    /// name in the same environment fails outright — a schema bump done that
+    /// way would make the cache silently vanish instead of starting empty.
+    #[test]
+    fn one_environment_refuses_a_second_named_table() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let env = super::open_env(directory.path(), 16 * 1024 * 1024).expect("open env");
 
-        assert!(!root.path().join("v1").exists(), "old schema pruned");
+        let mut transaction = env.write_txn().expect("first transaction");
+        env.create_database::<Str, Bytes>(&mut transaction, Some("snapshots-v1"))
+            .expect("first table opens");
+        transaction.commit().expect("commit first table");
+
+        let mut transaction = env.write_txn().expect("second transaction");
         assert!(
-            !root.path().join("data.mdb").exists(),
-            "pre-versioning environment pruned"
+            env.create_database::<Str, Bytes>(&mut transaction, Some("snapshots-v2"))
+                .is_err(),
+            "a second table name must fail loudly, not open a usable cache"
         );
     }
 

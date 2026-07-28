@@ -3929,7 +3929,6 @@ fn diff_row_item(
     }
 }
 
-
 fn diff_marks(
     state: &AppState,
     row: usize,
