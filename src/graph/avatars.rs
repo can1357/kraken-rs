@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    fs,
+    fmt::Write as _,
     sync::{
         LazyLock, Mutex,
         mpsc::{self, Sender},
@@ -9,16 +9,17 @@ use std::{
     time::{Duration, Instant},
 };
 
-use directories::ProjectDirs;
 use image::imageops::FilterType;
 use winit::event_loop::EventLoopProxy;
 
-use crate::app::UserEvent;
+use crate::{app::UserEvent, git::cache::AvatarCache};
 
 /// Canonical avatar fetch/atlas size; every surface scales this at draw time.
 const AVATAR_SIZE: u32 = 64;
 /// Cooldown before a failed avatar fetch is attempted again.
 const RETRY_COOLDOWN: Duration = Duration::from_secs(30);
+/// GitHub rejects API requests without a User-Agent.
+const USER_AGENT: &str = concat!("kraken-native/", env!("CARGO_PKG_VERSION"));
 
 #[derive(Default)]
 struct AvatarStore {
@@ -41,6 +42,41 @@ static STORE: LazyLock<Mutex<AvatarStore>> = LazyLock::new(|| Mutex::new(AvatarS
 static REQUESTS: LazyLock<Sender<Request>> = LazyLock::new(start_workers);
 static EVENT_LOOP_PROXY: LazyLock<Mutex<Option<EventLoopProxy<UserEvent>>>> =
     LazyLock::new(|| Mutex::new(None));
+
+/// Cross-session avatar storage; absent when the cache cannot be opened, in
+/// which case every session refetches.
+static CACHE: LazyLock<Option<AvatarCache>> = LazyLock::new(AvatarCache::platform);
+
+/// `owner/repo` for the active repository when it lives on GitHub; lets a
+/// commit email resolve to the account avatar GitHub keeps mapped privately.
+static GITHUB_SLUG: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
+
+/// Points email resolution at the repository's GitHub remote, if it has one.
+///
+/// Passing a non-GitHub or absent remote clears the mapping and leaves
+/// Gravatar as the only network source.
+pub(crate) fn set_github_remote(remote_url: Option<&str>) {
+    let slug = remote_url.and_then(github_slug);
+    let mut current = GITHUB_SLUG.lock().expect("avatar slug lock");
+    if *current == slug {
+        return;
+    }
+    *current = slug;
+    drop(current);
+    // A different repository can resolve emails the previous one could not.
+    // The deadlines are expired rather than removed: `retry_after` also marks
+    // which keys still hold a placeholder, so dropping the entries would make
+    // `request` treat those identicons as finished artwork.
+    let now = Instant::now();
+    for deadline in STORE
+        .lock()
+        .expect("avatar store lock")
+        .retry_after
+        .values_mut()
+    {
+        *deadline = now;
+    }
+}
 
 /// Connects avatar fetch completions to the native event loop.
 pub(crate) fn set_event_loop_proxy(proxy: EventLoopProxy<UserEvent>) {
@@ -112,13 +148,15 @@ fn start_workers() -> Sender<Request> {
 }
 
 fn fetch(request: Request) {
-    let path = cache_path(&request.key);
-    let bytes = fs::read(&path).ok().or_else(|| {
-        let url = avatar_url(&request.email, &request.key);
-        let mut response = ureq::get(&url).call().ok()?;
-        let bytes = response.body_mut().read_to_vec().ok()?;
-        let _ = fs::create_dir_all(path.parent().unwrap_or_else(|| std::path::Path::new(".")));
-        let _ = fs::write(&path, &bytes);
+    let bytes = cache_load(&request.key).or_else(|| {
+        // Gravatar first: an explicitly configured avatar outranks whatever
+        // account happens to own the address. GitHub answers for the many
+        // emails registered to an account but never published to Gravatar.
+        let bytes = download(&avatar_url(&request.email, &request.key)).or_else(|| {
+            let url = github_commit_avatar(&request.email)?;
+            download(&url)
+        })?;
+        cache_store(&request.key, &bytes);
         Some(bytes)
     });
     let fetched = bytes.and_then(|bytes| decode_circle(&bytes));
@@ -170,17 +208,106 @@ fn avatar_url(email: &str, hash: &str) -> String {
             return format!("https://avatars.githubusercontent.com/{user}?s={AVATAR_SIZE}");
         }
     }
-    format!("https://www.gravatar.com/avatar/{hash}?d=retro&s={AVATAR_SIZE}")
+    // `d=404` instead of a generated fallback so an unknown address falls
+    // through to GitHub resolution rather than locking in Gravatar's identicon.
+    format!("https://www.gravatar.com/avatar/{hash}?d=404&s={AVATAR_SIZE}")
 }
 
-fn cache_path(key: &str) -> std::path::PathBuf {
-    ProjectDirs::from("ac", "Kraken Native", "Kraken Native")
-        .map(|dirs| dirs.cache_dir().join("avatars").join(format!("{key}.png")))
-        .unwrap_or_else(|| {
-            std::env::temp_dir()
-                .join("kraken-native-avatars")
-                .join(format!("{key}.png"))
-        })
+/// Fetches one image, treating any transport or non-2xx response as absent.
+fn download(url: &str) -> Option<Vec<u8>> {
+    let mut response = ureq::get(url)
+        .header("User-Agent", USER_AGENT)
+        .call()
+        .ok()?;
+    response.body_mut().read_to_vec().ok()
+}
+
+/// Resolves a commit email to its GitHub account avatar via the active repo.
+///
+/// GitHub maps commit emails to accounts server-side, including addresses that
+/// are registered but not public, which is exactly the set Gravatar and the
+/// public user search both miss. Public repositories answer unauthenticated;
+/// `GITHUB_TOKEN`/`GH_TOKEN` covers private repositories and rate limits.
+fn github_commit_avatar(email: &str) -> Option<String> {
+    let slug = GITHUB_SLUG.lock().expect("avatar slug lock").clone()?;
+    let url = format!(
+        "https://api.github.com/repos/{slug}/commits?per_page=1&author={}",
+        percent_encode(email)
+    );
+    let mut request = ureq::get(&url)
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", USER_AGENT);
+    if let Some(token) = github_token() {
+        request = request.header("Authorization", &format!("Bearer {token}"));
+    }
+    let mut response = request.call().ok()?;
+    let commits: serde_json::Value = response.body_mut().read_json().ok()?;
+    let avatar = commits
+        .get(0)?
+        .get("author")?
+        .get("avatar_url")?
+        .as_str()?
+        .trim();
+    // The API hands back a sizeable default; ask for the atlas size instead.
+    (!avatar.is_empty()).then(|| format!("{avatar}&s={AVATAR_SIZE}"))
+}
+
+/// Optional GitHub credential, needed only for private repos and rate limits.
+fn github_token() -> Option<String> {
+    ["GITHUB_TOKEN", "GH_TOKEN"]
+        .iter()
+        .find_map(|name| std::env::var(name).ok())
+        .map(|token| token.trim().to_owned())
+        .filter(|token| !token.is_empty())
+}
+
+/// Extracts `owner/repo` from a GitHub remote in URL or scp-style form.
+fn github_slug(remote_url: &str) -> Option<String> {
+    let remote_url = remote_url.trim();
+    let rest = ["https://", "http://", "ssh://", "git://"]
+        .iter()
+        .find_map(|scheme| remote_url.strip_prefix(scheme))
+        .unwrap_or(remote_url);
+    // Drops "git@" userinfo from both ssh URLs and scp-style paths.
+    let rest = rest.split_once('@').map_or(rest, |(_, host)| host);
+    let (host, path) = rest.split_once(['/', ':'])?;
+    if !host.eq_ignore_ascii_case("github.com") {
+        return None;
+    }
+    let path = path.trim_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    let (owner, repo) = path.split_once('/')?;
+    (!owner.is_empty() && !repo.is_empty() && !repo.contains('/'))
+        .then(|| format!("{owner}/{repo}"))
+}
+
+/// Percent-encodes a query value; emails carry `@` and `+`, which `+` in a
+/// query string would otherwise decode as a space.
+fn percent_encode(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(char::from(byte));
+            }
+            _ => {
+                let _ = write!(encoded, "%{byte:02X}");
+            }
+        }
+    }
+    encoded
+}
+
+/// Reads an encoded avatar image previously persisted for `key`.
+fn cache_load(key: &str) -> Option<Vec<u8>> {
+    CACHE.as_ref()?.load(key)
+}
+
+/// Persists an encoded avatar image; storage failures only cost a refetch.
+fn cache_store(key: &str, bytes: &[u8]) {
+    if let Some(cache) = CACHE.as_ref() {
+        let _ = cache.store(key, bytes);
+    }
 }
 
 fn decode_circle(bytes: &[u8]) -> Option<Vec<u8>> {
@@ -257,10 +384,78 @@ mod tests {
     }
 
     #[test]
-    fn gravatar_url_matches_gitkraken_fallback() {
+    fn gravatar_declines_unknown_emails_so_github_can_answer() {
         assert_eq!(
             avatar_url("person@example.com", "abc"),
-            "https://www.gravatar.com/avatar/abc?d=retro&s=64"
+            "https://www.gravatar.com/avatar/abc?d=404&s=64"
+        );
+    }
+
+    #[test]
+    fn github_slug_accepts_every_remote_form() {
+        for remote in [
+            "https://github.com/can1357/kraken-rs.git",
+            "https://github.com/can1357/kraken-rs",
+            "git@github.com:can1357/kraken-rs.git",
+            "ssh://git@github.com/can1357/kraken-rs.git",
+            "https://GitHub.com/can1357/kraken-rs/",
+        ] {
+            assert_eq!(
+                github_slug(remote).as_deref(),
+                Some("can1357/kraken-rs"),
+                "{remote}"
+            );
+        }
+    }
+
+    #[test]
+    fn github_slug_rejects_other_hosts_and_partial_paths() {
+        for remote in [
+            "https://gitlab.com/can1357/kraken-rs.git",
+            "git@bitbucket.org:can1357/kraken-rs.git",
+            "https://github.com/can1357",
+            "https://github.company.com/can1357/kraken-rs.git",
+            "/local/path/repo.git",
+        ] {
+            assert_eq!(github_slug(remote), None, "{remote}");
+        }
+    }
+
+    #[test]
+    fn percent_encode_escapes_email_punctuation() {
+        assert_eq!(percent_encode("a+b@can.ac"), "a%2Bb%40can.ac");
+    }
+
+    /// Switching repositories must give placeholder avatars another chance
+    /// without erasing the mark that says they *are* placeholders — dropping
+    /// the entry makes `request` mistake a stale identicon for real artwork
+    /// and never refetch it.
+    #[test]
+    fn changing_repository_reopens_failed_avatars() {
+        let key = "avatar-retry-fixture".to_owned();
+        {
+            let mut store = STORE.lock().expect("avatar store lock");
+            store.pixels.insert(key.clone(), vec![0; 4]);
+            store
+                .retry_after
+                .insert(key.clone(), Instant::now() + RETRY_COOLDOWN);
+        }
+
+        set_github_remote(None);
+        set_github_remote(Some("https://github.com/can1357/kraken-rs.git"));
+
+        let store = STORE.lock().expect("avatar store lock");
+        let deadline = *store
+            .retry_after
+            .get(&key)
+            .expect("placeholder mark must survive a repository change");
+        assert!(
+            deadline <= Instant::now(),
+            "cooldown must be expired so the next request refetches"
+        );
+        assert!(
+            store.pixels.contains_key(&key),
+            "the identicon keeps painting until the refetch lands"
         );
     }
 }

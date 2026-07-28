@@ -1,4 +1,5 @@
 pub(crate) mod backend;
+pub(crate) mod cache;
 pub(crate) mod models;
 pub(crate) mod runner;
 pub(crate) mod store;

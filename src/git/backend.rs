@@ -345,6 +345,7 @@ impl GitBackend {
                 loaded_limit: limit,
                 has_more,
                 refs_sig: refs.sig,
+                remote_url: read_remote_url(&repository),
             })
         })
     }
@@ -1601,6 +1602,20 @@ fn read_stashes(repository: &mut Repository) -> Result<Vec<StashInfo>> {
     Ok(stashes)
 }
 
+/// Reads the URL avatar resolution uses to identify the hosting provider.
+///
+/// Prefers `origin`, falling back to the first remote that has a URL so
+/// single-remote clones using another name still resolve.
+fn read_remote_url(repository: &Repository) -> Option<String> {
+    let url = |name: &str| {
+        repository
+            .find_remote(name)
+            .ok()
+            .and_then(|remote| remote.url().map(str::to_owned))
+    };
+    url("origin").or_else(|| repository.remotes().ok()?.iter().flatten().find_map(url))
+}
+
 fn read_worktrees(repository: &Repository) -> Result<Vec<WorktreeInfo>> {
     let mut worktrees = Vec::new();
     for name in repository
@@ -2847,8 +2862,8 @@ mod tests {
         );
 
         let other = tempfile::tempdir().expect("temp dir");
-        let error = GitBackend::init_repository(other.path(), "   ")
-            .expect_err("reject empty branch name");
+        let error =
+            GitBackend::init_repository(other.path(), "   ").expect_err("reject empty branch name");
         assert!(error.to_string().contains("branch name"));
     }
 

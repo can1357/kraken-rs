@@ -13,6 +13,7 @@ use crate::{
     app::UserEvent,
     git::{
         backend::{Backend, GitBackend, LfsOperation},
+        cache::SnapshotCache,
         models::{
             CommitDetail, CommitInput, DiffDocument, DiffLineSelection, DiffRequest, PullOperation,
             RangeDetail, RepoSnapshot, WorkingTree,
@@ -336,6 +337,11 @@ pub(crate) enum GitPayload {
     Cloned(PathBuf),
     /// A freshly initialized repository ready to be opened.
     Created(PathBuf),
+    /// Last session's snapshot, delivered before the fresh walk so the graph
+    /// paints immediately. Unverified: the application hydrates the view from
+    /// it but refuses mutations and detail loads until a real
+    /// [`GitPayload::Snapshot`] promotes the repository.
+    Cached(RepoSnapshot),
 }
 
 /// One worker completion with a displayable error on failure.
@@ -390,6 +396,9 @@ fn worker_loop(
     let mut pending_refresh = None;
     // Per-repository caches shared by every job the worker runs; see RepoStore.
     let mut stores: HashMap<PathBuf, RepoStore> = HashMap::new();
+    // Cross-session snapshot store; absent when the cache directory is
+    // unavailable, which only costs the instant first paint.
+    let cache = SnapshotCache::platform();
     loop {
         while let Ok(event) = filesystem_events.try_recv() {
             if event.as_ref().is_ok_and(event_is_relevant) {
@@ -398,7 +407,13 @@ fn worker_loop(
         }
         if pending_refresh.is_some_and(|started| started.elapsed() >= Duration::from_millis(400)) {
             pending_refresh = None;
-            if !refresh_watched(&mut watched, &mut stores, events, event_loop_proxy) {
+            if !refresh_watched(
+                &mut watched,
+                &mut stores,
+                cache.as_ref(),
+                events,
+                event_loop_proxy,
+            ) {
                 break;
             }
         }
@@ -408,7 +423,28 @@ fn worker_loop(
                 let path = job.path.clone();
                 let limit = snapshot_limit(&job.kind);
                 let kind = job.kind.clone();
+                // Paint last session's graph before the fresh walk begins.
+                // Provisional data is unverified, so it travels as its own
+                // payload the application refuses to act on.
+                if matches!(job.kind, GitJobKind::LoadSnapshot { .. })
+                    && let Some(snapshot) = cache.as_ref().and_then(|cache| cache.load(&path))
+                    && events
+                        .send(GitEvent {
+                            generation,
+                            kind: None,
+                            result: Ok(GitPayload::Cached(snapshot)),
+                        })
+                        .is_ok()
+                {
+                    wake_event_loop(event_loop_proxy, UserEvent::Git);
+                }
                 let result = execute(job, &mut stores).map_err(|error| format!("{error:#}"));
+                if let (Some(cache), Ok(payload)) = (cache.as_ref(), &result)
+                    && let Some(snapshot) = payload_snapshot(payload)
+                    && let Some(store) = stores.get_mut(&snapshot.path)
+                {
+                    store.persist_snapshot(cache, snapshot);
+                }
                 match (limit, &result) {
                     (Some(limit), Ok(payload)) => {
                         if let Some(snapshot) = payload_snapshot(payload) {
@@ -486,6 +522,7 @@ fn event_is_relevant(event: &Event) -> bool {
 fn refresh_watched(
     watched: &mut Option<WatchedRepository>,
     stores: &mut HashMap<PathBuf, RepoStore>,
+    cache: Option<&SnapshotCache>,
     events: &Sender<GitEvent>,
     event_loop_proxy: &Option<EventLoopProxy<UserEvent>>,
 ) -> bool {
@@ -511,6 +548,9 @@ fn refresh_watched(
         };
         repository.refs_sig = snapshot.refs_sig;
         repository.working.clone_from(&snapshot.working);
+        if let Some(cache) = cache {
+            store.persist_snapshot(cache, &snapshot);
+        }
         GitPayload::Snapshot(snapshot)
     };
     if events
@@ -605,7 +645,10 @@ fn payload_snapshot(payload: &GitPayload) -> Option<&RepoSnapshot> {
         | GitPayload::Diff(_)
         | GitPayload::WorkingStatus(_)
         | GitPayload::Cloned(_)
-        | GitPayload::Created(_) => None,
+        | GitPayload::Created(_)
+        // Provisional data must never arm the watcher or become the baseline
+        // a later refresh diffs against.
+        | GitPayload::Cached(_) => None,
     }
 }
 

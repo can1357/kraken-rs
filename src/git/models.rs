@@ -10,7 +10,7 @@ pub(crate) enum PullOperation {
     Rebase,
 }
 /// A local or remote branch shown in the sidebar and checkout menu.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub(crate) struct BranchInfo {
     pub(crate) name: String,
     pub(crate) target: String,
@@ -20,14 +20,14 @@ pub(crate) struct BranchInfo {
 }
 
 /// A branch, tag, HEAD, or worktree label attached to a commit row.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub(crate) struct RefLabel {
     pub(crate) name: String,
     pub(crate) kind: RefKind,
 }
 
 /// Visual category for a repository reference.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub(crate) enum RefKind {
     Head,
     LocalBranch,
@@ -37,7 +37,7 @@ pub(crate) enum RefKind {
 }
 
 /// Consolidated branch presence attached to a commit row.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub(crate) struct CommitBranchRef {
     /// Branch name without a remote prefix.
     pub(crate) branch_short_name: String,
@@ -49,7 +49,7 @@ pub(crate) struct CommitBranchRef {
 }
 
 /// Immutable commit data needed by the virtualized graph.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub(crate) struct CommitSummary {
     pub(crate) id: String,
     pub(crate) short_id: String,
@@ -67,7 +67,7 @@ pub(crate) struct CommitSummary {
 }
 
 /// A stash entry rendered in the sidebar.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub(crate) struct StashInfo {
     pub(crate) index: usize,
     pub(crate) name: String,
@@ -75,7 +75,7 @@ pub(crate) struct StashInfo {
 }
 
 /// A linked worktree rendered below the branch lists.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub(crate) struct WorktreeInfo {
     pub(crate) name: String,
     pub(crate) path: PathBuf,
@@ -85,7 +85,7 @@ pub(crate) struct WorktreeInfo {
 }
 
 /// Git's semantic classification for one side of a file status.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub(crate) enum ChangeKind {
     Added,
     Modified,
@@ -110,7 +110,7 @@ impl ChangeKind {
 }
 
 /// Combined index and worktree status for one repository-relative path.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub(crate) struct WorkingFile {
     pub(crate) path: PathBuf,
     pub(crate) old_path: Option<PathBuf>,
@@ -119,7 +119,7 @@ pub(crate) struct WorkingFile {
 }
 
 /// Current index/worktree state used by the WIP node and commit form.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub(crate) struct WorkingTree {
     pub(crate) files: Vec<WorkingFile>,
 }
@@ -148,7 +148,7 @@ impl WorkingTree {
 }
 
 /// One bounded repository snapshot delivered from the Git worker.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub(crate) struct RepoSnapshot {
     pub(crate) path: PathBuf,
     pub(crate) name: String,
@@ -165,6 +165,9 @@ pub(crate) struct RepoSnapshot {
     /// Digest of all references when the snapshot was taken; lets the
     /// filesystem watcher skip history re-walks while no reference moves.
     pub(crate) refs_sig: u64,
+    /// URL of the `origin` remote, or the first remote when `origin` is
+    /// absent; avatar resolution uses it to identify a GitHub repository.
+    pub(crate) remote_url: Option<String>,
 }
 
 impl RepoSnapshot {

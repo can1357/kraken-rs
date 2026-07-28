@@ -324,6 +324,10 @@ pub(crate) struct AppState {
     pub(crate) busy_jobs: usize,
     inflight_ops: [usize; TOOLBAR_OPS],
     pub(crate) loading_history: bool,
+    /// The visible snapshot came from the cross-session cache and has not
+    /// been confirmed against the repository yet. Paint-only: mutations and
+    /// detail loads stay disabled until the fresh snapshot arrives.
+    pub(crate) provisional: bool,
     pub(crate) error: Option<String>,
     pub(crate) toast: Option<String>,
     pub(crate) ai_message: Option<String>,
@@ -562,6 +566,7 @@ impl AppState {
             busy_jobs: 0,
             inflight_ops: [0; TOOLBAR_OPS],
             loading_history: false,
+            provisional: false,
             error: None,
             toast: None,
             ai_message: None,
@@ -699,6 +704,7 @@ impl AppState {
         self.repo_path = Some(path);
         self.terminal = None;
         self.snapshot = None;
+        self.provisional = false;
         self.detail = None;
         self.diff = None;
         self.select_only(None);
@@ -763,6 +769,7 @@ impl AppState {
     }
 
     fn show_welcome(&mut self) {
+        self.provisional = false;
         if self.repo_path.is_some() || self.snapshot.is_some() {
             self.snapshot_revision = self.snapshot_revision.wrapping_add(1);
         }
@@ -872,6 +879,7 @@ impl AppState {
                 self.apply_snapshot(snapshot);
                 self.refresh_selection_details();
             }
+            Ok(GitPayload::Cached(snapshot)) => self.hydrate_provisional(snapshot),
             Ok(GitPayload::History(mut snapshot)) => {
                 self.loading_history = false;
                 // History jobs skip the status scan; the current working tree
@@ -999,8 +1007,10 @@ impl AppState {
                 self.push_after_commit = false;
                 // A tab whose first snapshot failed has no repository to
                 // show; return it to the welcome surface instead of
-                // stranding an empty graph view on a bogus path.
-                if self.snapshot.is_none()
+                // stranding an empty graph view on a bogus path. A cached
+                // paint counts as "no repository yet" — it was never
+                // confirmed against disk.
+                if (self.snapshot.is_none() || self.provisional)
                     && matches!(event.kind.as_ref(), Some(GitJobKind::LoadSnapshot { .. }))
                 {
                     if let Some(tab) = self.tabs.get_mut(self.active_tab) {
@@ -1032,13 +1042,37 @@ impl AppState {
         self.diff_revision = self.diff_revision.wrapping_add(1);
     }
 
+    /// Paints the cached graph and sidebar for a repository whose real
+    /// snapshot is still loading.
+    ///
+    /// Deliberately narrower than [`AppState::apply_snapshot`]: recents,
+    /// selection, working-diff retargeting, and detail prefetch all act on
+    /// data that may no longer exist, so they wait for the fresh snapshot.
+    /// Anything the user could trigger against stale rows is refused while
+    /// [`AppState::provisional`] is set.
+    fn hydrate_provisional(&mut self, snapshot: RepoSnapshot) {
+        // A fresh snapshot that won the race outranks the cache.
+        if self.snapshot.is_some() || self.repo_path.as_ref() != Some(&snapshot.path) {
+            return;
+        }
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            tab.title.clone_from(&snapshot.name);
+        }
+        self.graph = GraphLayout::build(&snapshot.commits);
+        self.snapshot = Some(snapshot);
+        self.snapshot_revision = self.snapshot_revision.wrapping_add(1);
+        self.provisional = true;
+    }
+
     fn apply_snapshot(&mut self, snapshot: RepoSnapshot) {
+        self.provisional = false;
         self.repo_path = Some(snapshot.path.clone());
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
             tab.title.clone_from(&snapshot.name);
             tab.path = Some(snapshot.path.clone());
         }
         self.remember_repository(&snapshot.path, &snapshot.name);
+        crate::graph::avatars::set_github_remote(snapshot.remote_url.as_deref());
         self.requested_limit = snapshot.loaded_limit.max(self.requested_limit);
         // Drop selected ids that vanished from history in one pass, keeping
         // the lead on the topmost surviving row.
@@ -1856,6 +1890,11 @@ impl AppState {
                 }
             }
             UiAction::OpenFileContext { path, scope } => {
+                // Entries here act on the working tree directly, so the menu
+                // stays shut until the rows are known to be real.
+                if self.reject_while_provisional() {
+                    return;
+                }
                 self.overlay_anchor = self.mouse;
                 self.show_popup(Overlay::FileContext { path, scope }, FocusField::None);
             }
@@ -1933,6 +1972,9 @@ impl AppState {
                 }
             }
             UiAction::FileContextDelete => {
+                if self.reject_while_provisional() {
+                    return;
+                }
                 if let Overlay::FileContext { path, .. } = self.overlay.clone() {
                     self.close_overlay();
                     if let Err(error) = std::fs::remove_file(self.workdir_path(&path)) {
@@ -3632,9 +3674,26 @@ impl AppState {
         self.submit_mutation_pending(kind, PendingMutation::History { record, undo });
     }
 
+    /// Refuses an action that would touch the repository while the visible
+    /// snapshot is only the unverified cache paint, reporting why.
+    ///
+    /// Covers both worker jobs and the handful of context-menu entries that
+    /// change the working tree directly.
+    fn reject_while_provisional(&mut self) -> bool {
+        if self.provisional {
+            self.toast = Some("Still loading this repository…".to_owned());
+            return true;
+        }
+        false
+    }
+
     fn submit_mutation_pending(&mut self, kind: GitJobKind, pending: PendingMutation) {
         if self.repo_path.is_none() {
             self.error = Some("No repository is open.".to_owned());
+            return;
+        }
+        // Never mutate a repository whose real state has not been read yet.
+        if self.reject_while_provisional() {
             return;
         }
         if let PendingMutation::History { undo, .. } = &pending {
@@ -3801,6 +3860,18 @@ impl AppState {
             self.error = Some("No repository is open.".to_owned());
             return;
         };
+        // Cached rows may name commits this repository no longer has; asking
+        // for their contents would only produce failing jobs.
+        if self.provisional
+            && matches!(
+                kind,
+                GitJobKind::LoadDetail { .. }
+                    | GitJobKind::LoadRangeDetail { .. }
+                    | GitJobKind::LoadDiff { .. }
+            )
+        {
+            return;
+        }
         if let Some(op) = toolbar_op(&kind) {
             self.begin_op(op);
         }
@@ -3972,6 +4043,88 @@ mod tests {
             thread::sleep(Duration::from_millis(5));
             state.process_events();
         }
+    }
+
+    fn fixture_snapshot(path: &Path, subject: &str) -> RepoSnapshot {
+        RepoSnapshot {
+            path: path.to_path_buf(),
+            name: "example".to_owned(),
+            head: "main".to_owned(),
+            head_id: None,
+            branches: Vec::new(),
+            tags: Vec::new(),
+            stashes: Vec::new(),
+            worktrees: Vec::new(),
+            commits: vec![crate::git::models::CommitSummary {
+                id: "a".repeat(40),
+                short_id: "aaaaaaa".to_owned(),
+                subject: subject.to_owned(),
+                description: String::new(),
+                author: "t".to_owned(),
+                email: "t@t".to_owned(),
+                authored_seconds: 0,
+                parents: Vec::new(),
+                is_local: true,
+                refs: Vec::new(),
+                branch_refs: Vec::new(),
+            }],
+            working: WorkingTree::default(),
+            loaded_limit: 200,
+            has_more: false,
+            refs_sig: 1,
+            remote_url: None,
+        }
+    }
+
+    /// The cross-session cache paints instantly but is unverified, so it must
+    /// not record the repository as recent, prefetch details, or let a
+    /// mutation run against rows that may no longer exist.
+    #[test]
+    fn cached_snapshot_paints_but_stays_inert_until_the_real_one_lands() {
+        let settings_directory = tempfile::tempdir().expect("temporary settings directory");
+        let store = SettingsStore::at(settings_directory.path().join("settings.toml"));
+        let mut state = AppState::base(1_200, 800, store, Settings::default());
+        let repo = PathBuf::from("/tmp/kraken-provisional-example");
+        state.repo_path = Some(repo.clone());
+
+        state.apply_git_event(GitEvent {
+            generation: state.generation,
+            kind: None,
+            result: Ok(GitPayload::Cached(fixture_snapshot(&repo, "cached row"))),
+        });
+        assert!(state.provisional, "cache paint is provisional");
+        assert_eq!(
+            state.snapshot.as_ref().expect("painted").commits[0].subject,
+            "cached row"
+        );
+        assert!(
+            state.settings.recent_repos.is_empty(),
+            "unverified data must not enter recents"
+        );
+
+        let before = state.busy_jobs;
+        state.dispatch(UiAction::StageAll);
+        assert_eq!(
+            state.busy_jobs, before,
+            "mutation must not reach the worker"
+        );
+        assert!(state.toast.is_some(), "refusal is surfaced to the user");
+
+        state.apply_git_event(GitEvent {
+            generation: state.generation,
+            kind: Some(GitJobKind::LoadSnapshot { limit: 200 }),
+            result: Ok(GitPayload::Snapshot(fixture_snapshot(&repo, "real row"))),
+        });
+        assert!(!state.provisional, "fresh snapshot promotes the repository");
+        assert_eq!(
+            state.snapshot.as_ref().expect("promoted").commits[0].subject,
+            "real row"
+        );
+        assert_eq!(
+            state.settings.recent_repos.first().map(|entry| &entry.path),
+            Some(&repo),
+            "promotion records the repository"
+        );
     }
 
     #[test]

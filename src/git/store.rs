@@ -25,8 +25,10 @@ use gix::{
     traverse::commit::topo,
 };
 
+use crate::git::cache::SnapshotCache;
 use crate::git::models::{
-    BranchInfo, ChangeKind, CommitBranchRef, CommitSummary, RefLabel, WorkingFile, WorkingTree,
+    BranchInfo, ChangeKind, CommitBranchRef, CommitSummary, RefLabel, RepoSnapshot, WorkingFile,
+    WorkingTree,
 };
 
 /// Longest commit description carried into graph rows.
@@ -41,6 +43,9 @@ pub(crate) struct RepoStore {
     commits: HashMap<ObjectId, CachedCommit>,
     /// The last walk, reused verbatim while no reference moves.
     memo: Option<GraphMemo>,
+    /// Change marker (refs signature + working tree) of the snapshot last
+    /// written to disk, so unchanged snapshots skip the write entirely.
+    persisted: Option<(u64, WorkingTree)>,
     maintenance_spawned: bool,
 }
 
@@ -98,7 +103,21 @@ impl RepoStore {
             path,
             commits: HashMap::new(),
             memo: None,
+            persisted: None,
             maintenance_spawned: false,
+        }
+    }
+
+    /// Writes `snapshot` to the cross-session cache so the next launch can
+    /// paint immediately. Repository state that has not moved since the last
+    /// write is skipped, keeping staging churn off the disk.
+    pub(crate) fn persist_snapshot(&mut self, cache: &SnapshotCache, snapshot: &RepoSnapshot) {
+        let marker = (snapshot.refs_sig, snapshot.working.clone());
+        if self.persisted.as_ref() == Some(&marker) {
+            return;
+        }
+        if cache.store(&self.path, snapshot).is_ok() {
+            self.persisted = Some(marker);
         }
     }
 
