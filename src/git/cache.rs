@@ -23,10 +23,22 @@ use heed::{
 
 use crate::git::models::RepoSnapshot;
 
-/// Snapshot table name; bump the suffix whenever [`RepoSnapshot`] changes
-/// shape so entries written by an older build simply miss instead of
-/// mis-decoding.
-const SNAPSHOT_DATABASE: &str = "snapshots-v2";
+/// Snapshot table name. Stable on purpose: the schema version lives in the
+/// environment directory ([`SNAPSHOT_SCHEMA`]) because one LMDB environment
+/// here allows a single named database, so introducing a second name would
+/// fail with `MDB_DBS_FULL` instead of superseding the old table.
+const SNAPSHOT_DATABASE: &str = "snapshots";
+
+/// Directory component isolating one [`RepoSnapshot`] layout from the next.
+/// Bump it whenever the model changes shape; entries written by an older
+/// build then live in a sibling directory this build never opens, so they can
+/// neither be decoded nor mis-decoded.
+///
+/// Superseded directories are deliberately left on disk. An older Kraken may
+/// still have them mapped, and deleting files behind LMDB's back is exactly
+/// what the mapping in [`open_env`] assumes never happens. Cache bytes are
+/// disposable; the mmap invariant is not.
+const SNAPSHOT_SCHEMA: &str = "v2";
 
 /// Avatar table name, keyed by the stable avatar key the graph requests.
 const AVATAR_DATABASE: &str = "avatars-v1";
@@ -48,10 +60,10 @@ impl SnapshotCache {
     /// Opens the cache in the platform cache directory, or returns `None`
     /// when it is unavailable. A missing cache only costs the instant paint.
     pub(crate) fn platform() -> Option<Self> {
-        let directory = ProjectDirs::from("ac", "Kraken Native", "Kraken Native")?
+        let root = ProjectDirs::from("ac", "Kraken Native", "Kraken Native")?
             .cache_dir()
             .join("snapshots");
-        Self::at(&directory).ok()
+        Self::at(&root.join(SNAPSHOT_SCHEMA)).ok()
     }
 
     /// Opens (creating if needed) the LMDB environment rooted at `directory`.
@@ -198,6 +210,54 @@ mod tests {
         assert!(
             cache.load(&PathBuf::from("/tmp/other")).is_none(),
             "keys are per repository"
+        );
+    }
+    /// A schema bump must yield a working, empty cache. Versioning by table
+    /// name inside one environment could not do this: the environment allows
+    /// a single named database, so the second name fails to open and the
+    /// cache silently disappears.
+    #[test]
+    fn bumping_the_schema_starts_empty_and_leaves_the_old_environment_intact() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let repo = PathBuf::from("/tmp/example");
+
+        let previous = SnapshotCache::at(&root.path().join("v1")).expect("open v1");
+        previous.store(&repo, &snapshot("main")).expect("store");
+
+        let current = SnapshotCache::at(&root.path().join("v2")).expect("open v2");
+        assert!(
+            current.load(&repo).is_none(),
+            "a bumped schema starts empty rather than mis-decoding"
+        );
+        current.store(&repo, &snapshot("release")).expect("store");
+        assert_eq!(current.load(&repo).expect("hit").head, "release");
+
+        // Superseded environments stay readable: an older build may still
+        // have them mapped, so this build must never delete them.
+        assert_eq!(
+            previous.load(&repo).expect("v1 intact").head,
+            "main",
+            "old schema is left untouched"
+        );
+    }
+        previous.store(&repo, &snapshot("main")).expect("store");
+        drop(previous);
+        // Pre-versioning builds wrote the environment loose in the root.
+        std::fs::write(root.path().join("data.mdb"), b"legacy").expect("legacy file");
+
+        super::prune_stale_schemas(root.path(), "v2");
+        let current = SnapshotCache::at(&root.path().join("v2")).expect("open v2");
+        assert!(
+            current.load(&repo).is_none(),
+            "a bumped schema starts empty rather than mis-decoding"
+        );
+        current.store(&repo, &snapshot("release")).expect("store");
+        assert_eq!(current.load(&repo).expect("hit").head, "release");
+
+        assert!(!root.path().join("v1").exists(), "old schema pruned");
+        assert!(
+            !root.path().join("data.mdb").exists(),
+            "pre-versioning environment pruned"
         );
     }
 
