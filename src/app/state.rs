@@ -2594,6 +2594,67 @@ impl AppState {
         }
     }
 
+    /// Applies application-level key bindings after Slab processes a key event.
+    pub(crate) fn handle_key_shortcut(
+        &mut self,
+        key: &str,
+        command: bool,
+        primary: bool,
+        shift: bool,
+    ) {
+        match key {
+            "F1" => {
+                self.dispatch(if self.main_view == MainView::Diff {
+                    UiAction::ToggleEditorPalette
+                } else {
+                    UiAction::ToggleCommandPalette
+                });
+            }
+            "ArrowUp" if self.focus == FocusField::Palette => {
+                self.dispatch(UiAction::PalettePrevious);
+            }
+            "ArrowDown" if self.focus == FocusField::Palette => {
+                self.dispatch(UiAction::PaletteNext);
+            }
+            "Enter" if shift && self.focus == FocusField::DiffSearch => {
+                self.dispatch(UiAction::PreviousDiffSearch);
+            }
+            "ArrowUp" if self.focus == FocusField::Search => {
+                self.dispatch(UiAction::PreviousSearchResult);
+            }
+            "ArrowDown" if self.focus == FocusField::Search => {
+                self.dispatch(UiAction::NextSearchResult);
+            }
+            "ArrowUp" if self.focus == FocusField::DiffSearch => {
+                self.dispatch(UiAction::PreviousDiffSearch);
+            }
+            "ArrowDown" if self.focus == FocusField::DiffSearch => {
+                self.dispatch(UiAction::NextDiffSearch);
+            }
+            "Enter" if command => self.enter(true),
+            "Escape" => self.escape(),
+            key if primary && shift && key.eq_ignore_ascii_case("p") => {
+                self.dispatch(if self.main_view == MainView::Diff {
+                    UiAction::ToggleEditorPalette
+                } else {
+                    UiAction::ToggleCommandPalette
+                });
+            }
+            key if command && key.eq_ignore_ascii_case("f") => {
+                self.dispatch(if self.main_view == MainView::Diff {
+                    UiAction::ToggleDiffSearch
+                } else {
+                    UiAction::ToggleSearch
+                });
+            }
+            "," if command => self.dispatch(UiAction::OpenPreferences),
+            key if command && shift && key.eq_ignore_ascii_case("a") => {
+                self.dispatch(UiAction::ToggleTabSwitcher);
+            }
+            _ => {}
+        }
+    }
+
     /// Closes the highest-level transient surface.
     pub(crate) fn escape(&mut self) {
         if self.preferences_open {

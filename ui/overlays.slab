@@ -230,7 +230,10 @@ def NotificationsOverlay() {
       row h=52 pad=0,14 align=center {
         text "NOTIFICATIONS" style=text.label color=color.dim nowrap
         spacer
-        text "ALL  ⌄" style=text.small color=color.dim nowrap
+        row gap=4 align=center {
+          text "ALL" style=text.small color=color.dim nowrap
+          Codicon "" 10 color.dim
+        }
       }
       rect h=1 bg=color.border
       col w=fill h=fill pad=11,12 gap=8 scroll clip {
@@ -279,7 +282,7 @@ def Palette() {
   stack w=fill h=fill bg=#00000066 act=dismiss-overlay {
     col w=620 h=430 self=top bg=color.surface stroke=color.borderHard stroke-w=1 radius=6 shadow=shadow.modal offset=0,94 clip {
       row h=50 pad=9,12 gap=9 align=center press=focus-palette {
-        text "⌕" style=text.mono color=color.muted nowrap
+        Codicon "" 13 color.muted
         text param.palette.query style=text.ui color=color.text w=fill nowrap ellipsis field=change-palette submit=submit-palette
         text "ESC" style=text.small color=color.dim nowrap
       }

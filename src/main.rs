@@ -46,9 +46,9 @@ struct Args {
     #[arg(long, value_enum)]
     screenshot: Option<ScreenshotArg>,
 
-    /// Start the headless CDP-like automation endpoint on this port; use 0 for any free port.
+    /// Start a headless Slab Drive Protocol session on this port; use 0 for any free port.
     #[arg(long, conflicts_with = "screenshot")]
-    automation_port: Option<u16>,
+    drive_port: Option<u16>,
 
     /// PNG path used by --screenshot.
     #[arg(long, default_value = "kraken.png")]
@@ -74,7 +74,7 @@ fn main() -> Result<()> {
     let options = LaunchOptions {
         repo,
         screenshot: args.screenshot.map(Into::into),
-        automation_port: args.automation_port,
+        drive_port: args.drive_port,
         output: args.out,
         width: args.width.max(640),
         height: args.height.max(480),

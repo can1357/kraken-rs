@@ -2,9 +2,9 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use image::{ImageBuffer, Rgba};
-use slab_kernel::{dispatch::Event, flatten::Frame};
+use slab_drive::PumpResponse;
 
-use crate::{app::state::AppState, gpu::slab::SlabRenderer, ui::slab::SlabDispatch};
+use crate::{app::state::AppState, gpu::slab::SlabRenderer};
 
 /// Renders deterministic application frames to PNG without creating a window.
 pub(crate) struct OffscreenRenderer {
@@ -56,25 +56,8 @@ impl OffscreenRenderer {
         Ok(())
     }
 
-    /// Routes one host event through the shared terminal-then-root routing
-    /// used by the windowed path.
-    pub(crate) fn dispatch(&mut self, state: &mut AppState, event: &Event) -> SlabDispatch {
-        self.slab.route_event(state, event).0
-    }
-
-    /// Solves the document for `state` and returns the flattened semantic frame.
-    pub(crate) fn semantic_frame(&mut self, state: &AppState) -> Frame {
-        self.slab.semantic_frame(state)
-    }
-
-    /// Returns the scene-string pool backing role, label, and description
-    /// references; index zero is the absent sentinel.
-    pub(crate) fn scene_strings(&self) -> &[String] {
-        self.slab.scene_strings()
-    }
-
-    /// Returns the authored key path for a scene node, empty when unkeyed.
-    pub(crate) fn node_key(&self, node: u32) -> String {
-        self.slab.node_key(node)
+    /// Applies one Slab Drive Protocol request to the retained document.
+    pub(crate) fn drive_request(&mut self, state: &mut AppState, line: &str) -> PumpResponse {
+        self.slab.drive_request(state, line)
     }
 }

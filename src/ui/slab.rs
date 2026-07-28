@@ -8,7 +8,7 @@ use std::{
 use chrono::{DateTime, Local, Utc};
 use num_traits::ToPrimitive;
 use slab_kernel::{
-    dispatch::{Effects, Event},
+    dispatch::{Effects, Event, M_CTRL, M_META, M_SHIFT},
     flatten::Frame,
 };
 use syntect::{easy::HighlightLines, highlighting::ThemeSet, parsing::SyntaxSet};
@@ -183,18 +183,7 @@ impl SlabDocument {
     /// Dispatches one real host event through Slab and translates every signal.
     pub(crate) fn dispatch(&mut self, state: &mut AppState, event: &Event) -> SlabDispatch {
         let (effects, signals) = self.doc.dispatch(event);
-        for scroll in &effects.scrolls {
-            // Kernel keys are full instantiation paths ("#app/.../#diff-scroll");
-            // state matches the authored leaf id.
-            let leaf = scroll.key.rsplit('/').next().unwrap_or(&scroll.key);
-            let leaf = leaf.strip_prefix('#').unwrap_or(leaf);
-            state.apply_slab_scroll(leaf, scroll.axis, scroll.off);
-        }
-        let diff_scroll_x = self.doc.get_scroll("diff-scroll", 1);
-        let mut host_commands = Vec::new();
-        for signal in signals {
-            dispatch_signal(state, signal, &mut host_commands, diff_scroll_x);
-        }
+        let host_commands = self.apply_effects(state, &effects, signals);
         // The kernel divider has no begin/end signals: `resize_to` arms
         // `state.drag` on the first live resize; release it with the pointer
         // so column_layout leaves its explicit-drag floors (HEAD end_drag).
@@ -208,6 +197,47 @@ impl SlabDocument {
             effects,
             host_commands,
         }
+    }
+
+    /// Applies effects emitted by a mounted Slab Drive Protocol request.
+    pub(crate) fn apply_drive_effects(
+        &mut self,
+        state: &mut AppState,
+        effects: &Effects,
+    ) -> Vec<SlabHostCommand> {
+        let signals = self.doc.decode_signals(effects);
+        self.apply_effects(state, effects, signals)
+    }
+
+    fn apply_effects(
+        &mut self,
+        state: &mut AppState,
+        effects: &Effects,
+        signals: Vec<generated::Signal>,
+    ) -> Vec<SlabHostCommand> {
+        if let Some(meta) = effects.sig_meta.last() {
+            state.modifier_shift = meta.mods & M_SHIFT != 0;
+            state.modifier_primary = meta.mods & (M_CTRL | M_META) != 0;
+            if meta.x >= 0.0 && meta.y >= 0.0 {
+                state.mouse = [
+                    meta.x.to_f32().unwrap_or(0.0),
+                    meta.y.to_f32().unwrap_or(0.0),
+                ];
+            }
+        }
+        for scroll in &effects.scrolls {
+            // Kernel keys are full instantiation paths ("#app/.../#diff-scroll");
+            // state matches the authored leaf id.
+            let leaf = scroll.key.rsplit('/').next().unwrap_or(&scroll.key);
+            let leaf = leaf.strip_prefix('#').unwrap_or(leaf);
+            state.apply_slab_scroll(leaf, scroll.axis, scroll.off);
+        }
+        let diff_scroll_x = self.doc.get_scroll("diff-scroll", 1);
+        let mut host_commands = Vec::new();
+        for signal in signals {
+            dispatch_signal(state, signal, &mut host_commands, diff_scroll_x);
+        }
+        host_commands
     }
 
     /// Returns the selected text in the currently focused Slab editor.
@@ -236,7 +266,8 @@ impl SlabDocument {
         )
     }
 
-    fn sync(&mut self, state: &AppState) {
+    /// Projects application state into the retained instance without solving it.
+    pub(crate) fn sync(&mut self, state: &AppState) {
         self.sync_scalars(state);
         self.sync_lists(state);
         self.sync_scroll(state);
@@ -4596,6 +4627,7 @@ mod tests {
     use std::path::PathBuf;
 
     use slab_kernel::dispatch::{E_POINTER_DOWN, E_POINTER_MOVE, E_POINTER_UP, E_TEXT};
+    use slab_drive::RequestPump;
 
     use crate::git::models::{
         BranchInfo, CommitSummary, DiffDocument, DiffRequest, RepoSnapshot, WorkingFile,
@@ -4684,7 +4716,7 @@ mod tests {
                     .inst
                     .st
                     .scene_strs
-                    .get(usize::try_from(node.label).ok()?)?;
+                    .get(usize::try_from(node.sem.label).ok()?)?;
                 (label == expected && node.w > 0.0 && node.h > 0.0)
                     .then_some((node.x, node.y, node.w, node.h))
             })
@@ -4731,6 +4763,52 @@ mod tests {
     fn context_label(state: &mut AppState, document: &mut SlabDocument, label: &str) {
         let (x, y) = labeled_center(state, document, label);
         document.dispatch(state, &pointer(E_POINTER_DOWN, x, y, 2));
+    }
+
+    #[test]
+    fn drive_click_routes_slab_signals_into_application_state() {
+        let mut state = workspace_state();
+        let mut document = SlabDocument::new(generated::Doc::new());
+        let mut pump = RequestPump::new(
+            "ui/app.slab",
+            slab_slir::read(generated::SLIR).expect("embedded app SLIR"),
+            document.doc.imgs.clone(),
+        );
+
+        document.sync(&state);
+        let tree = pump.request(
+            &mut document.doc.inst,
+            r#"{"id":1,"method":"scene.tree","params":{}}"#,
+        );
+        let nodes = tree.response["result"]["nodes"]
+            .as_array()
+            .expect("scene tree response has nodes");
+        let preferences = nodes
+            .iter()
+            .find(|node| node["label"] == "Preferences")
+            .and_then(|node| node["key"].as_str())
+            .expect("scene tree exposes the Preferences control")
+            .to_owned();
+
+        document.sync(&state);
+        let click = serde_json::json!({
+            "id": 2,
+            "method": "input.click",
+            "params": { "key": preferences },
+        })
+        .to_string();
+        let result = pump.request(&mut document.doc.inst, &click);
+        assert!(
+            result.response.get("error").is_none(),
+            "drive click succeeded: {}",
+            result.response
+        );
+        for effects in &result.effects {
+            assert!(document
+                .apply_drive_effects(&mut state, effects)
+                .is_empty());
+        }
+        assert!(state.preferences_open);
     }
 
     #[test]

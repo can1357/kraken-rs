@@ -1,5 +1,5 @@
 pub(crate) mod ai;
-pub(crate) mod automation;
+pub(crate) mod drive;
 #[cfg(target_os = "macos")]
 pub(crate) mod native_menu;
 pub(crate) mod palette;
@@ -50,7 +50,7 @@ pub(crate) enum UserEvent {
 pub(crate) struct LaunchOptions {
     pub(crate) repo: Option<PathBuf>,
     pub(crate) screenshot: Option<ScreenshotView>,
-    pub(crate) automation_port: Option<u16>,
+    pub(crate) drive_port: Option<u16>,
     pub(crate) output: PathBuf,
     pub(crate) width: u32,
     pub(crate) height: u32,
@@ -243,8 +243,8 @@ fn set_clipboard_text(text: String) {
 
 /// Runs one headless frame or enters the native winit event loop.
 pub(crate) fn run(options: LaunchOptions) -> Result<()> {
-    if let Some(port) = options.automation_port {
-        return automation::run(options.repo, options.width, options.height, port);
+    if let Some(port) = options.drive_port {
+        return drive::run(options.repo, options.width, options.height, port);
     }
     if let Some(view) = options.screenshot {
         let state = AppState::for_screenshot(options.repo, view, options.width, options.height)?;
@@ -500,12 +500,13 @@ impl ApplicationHandler<UserEvent> for NativeApplication {
                     }
                     _ => None,
                 };
+                let key = key_name(&event.logical_key);
                 if !matches!(shortcut, Some('c' | 'x' | 'v'))
-                    && let Some(name) = key_name(&event.logical_key)
+                    && let Some(name) = &key
                 {
                     let mut kernel =
                         base_event(slab_kernel::dispatch::E_KEY_DOWN, state, self.modifiers);
-                    kernel.key = name;
+                    kernel.key.clone_from(name);
                     let outcome = renderer.dispatch(state, &kernel);
                     apply_host_commands(event_loop, renderer, outcome.host_commands);
                 }
@@ -559,70 +560,8 @@ impl ApplicationHandler<UserEvent> for NativeApplication {
                     apply_host_commands(event_loop, renderer, outcome.host_commands);
                 }
 
-                match &event.logical_key {
-                    Key::Named(NamedKey::F1) => {
-                        state.dispatch(if state.main_view == state::MainView::Diff {
-                            UiAction::ToggleEditorPalette
-                        } else {
-                            UiAction::ToggleCommandPalette
-                        });
-                    }
-                    Key::Named(NamedKey::ArrowUp) if state.focus == state::FocusField::Palette => {
-                        state.dispatch(UiAction::PalettePrevious);
-                    }
-                    Key::Named(NamedKey::ArrowDown)
-                        if state.focus == state::FocusField::Palette =>
-                    {
-                        state.dispatch(UiAction::PaletteNext);
-                    }
-                    Key::Named(NamedKey::Enter)
-                        if shift && state.focus == state::FocusField::DiffSearch =>
-                    {
-                        state.dispatch(UiAction::PreviousDiffSearch);
-                    }
-                    Key::Named(NamedKey::ArrowUp) if state.focus == state::FocusField::Search => {
-                        state.dispatch(UiAction::PreviousSearchResult);
-                    }
-                    Key::Named(NamedKey::ArrowDown) if state.focus == state::FocusField::Search => {
-                        state.dispatch(UiAction::NextSearchResult);
-                    }
-                    Key::Named(NamedKey::ArrowUp)
-                        if state.focus == state::FocusField::DiffSearch =>
-                    {
-                        state.dispatch(UiAction::PreviousDiffSearch);
-                    }
-                    Key::Named(NamedKey::ArrowDown)
-                        if state.focus == state::FocusField::DiffSearch =>
-                    {
-                        state.dispatch(UiAction::NextDiffSearch);
-                    }
-                    Key::Named(NamedKey::Enter) if command => state.enter(true),
-                    Key::Named(NamedKey::Escape) => state.escape(),
-                    Key::Character(character)
-                        if primary && shift && character.eq_ignore_ascii_case("p") =>
-                    {
-                        state.dispatch(if state.main_view == state::MainView::Diff {
-                            UiAction::ToggleEditorPalette
-                        } else {
-                            UiAction::ToggleCommandPalette
-                        });
-                    }
-                    Key::Character(character) if command && character.eq_ignore_ascii_case("f") => {
-                        state.dispatch(if state.main_view == state::MainView::Diff {
-                            UiAction::ToggleDiffSearch
-                        } else {
-                            UiAction::ToggleSearch
-                        });
-                    }
-                    Key::Character(character) if command && character == "," => {
-                        state.dispatch(UiAction::OpenPreferences);
-                    }
-                    Key::Character(character)
-                        if command && shift && character.eq_ignore_ascii_case("a") =>
-                    {
-                        state.dispatch(UiAction::ToggleTabSwitcher);
-                    }
-                    _ => {}
+                if let Some(key) = key {
+                    state.handle_key_shortcut(&key, command, primary, shift);
                 }
                 renderer.window().request_redraw();
             }

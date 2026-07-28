@@ -3,15 +3,16 @@ use slab_kernel::{
     dispatch::{
         E_BLUR, E_COMPOSITION_END, E_COMPOSITION_START, E_COMPOSITION_UPDATE, E_COPY, E_CUT,
         E_KEY_DOWN, E_PASTE, E_POINTER_DOWN, E_POINTER_MOVE, E_POINTER_UP, E_TEXT, E_WHEEL,
-        Effects, Event,
+        Effects, Event, M_CTRL, M_META, M_SHIFT,
     },
     flatten::Frame,
     frame::{self as kframe, HoleRect},
 };
 use slab_native::{RegisteredFont, holes::HoleContent, renderer::LayerInput};
+use slab_drive::{PumpHostAction, PumpHostEvent, PumpResponse, RequestPump};
 
 use crate::{
-    app::state::AppState,
+    app::state::{AppState, MainView},
     term::TerminalHole,
     ui::{
         action::UiAction,
@@ -22,6 +23,7 @@ use crate::{
 /// Renders the application-owned Slab document through the shared native kernel.
 pub(crate) struct SlabRenderer {
     document: SlabDocument,
+    drive: RequestPump,
     renderer: slab_native::renderer::Renderer,
     frame: Frame,
     doc_id: usize,
@@ -81,6 +83,11 @@ impl SlabRenderer {
     pub(crate) fn new(device: wgpu::Device, queue: wgpu::Queue) -> Result<Self> {
         let mut document = SlabDocument::new(generated::Doc::new());
         let app_fonts = register_app_fonts(&mut document.doc.inst);
+        let drive = RequestPump::new(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/ui/app.slab"),
+            slab_slir::read(generated::SLIR).expect("embedded app SLIR"),
+            document.doc.imgs.clone(),
+        );
         let terminal_hole = TerminalHole::new();
         let mut renderer = slab_native::renderer::Renderer::new(device, queue);
         let doc_id = renderer.register_doc(&document.doc.inst.doc, &document.doc.imgs, &app_fonts);
@@ -91,6 +98,7 @@ impl SlabRenderer {
         );
         Ok(Self {
             document,
+            drive,
             renderer,
             doc_id,
             frame: slab_kernel::flatten::frame_new(),
@@ -177,6 +185,39 @@ impl SlabRenderer {
         self.document.dispatch(state, event)
     }
 
+    /// Applies one Slab Drive Protocol request to the retained document.
+    pub(crate) fn drive_request(&mut self, state: &mut AppState, line: &str) -> PumpResponse {
+        self.sync_terminal(state);
+        self.document.sync(state);
+        let mut keys = Vec::new();
+        let result = {
+            let (drive, document) = (&mut self.drive, &mut self.document);
+            drive.request_with_host_input(&mut document.doc.inst, line, |_instance, event| {
+                match event {
+                    PumpHostEvent::Key { key, mods } => {
+                        keys.push((key.to_owned(), mods));
+                        if clipboard_shortcut(key, mods) {
+                            PumpHostAction::Consumed
+                        } else {
+                            PumpHostAction::Dispatch
+                        }
+                    }
+                    PumpHostEvent::Text { .. } => PumpHostAction::Dispatch,
+                }
+            })
+        };
+        for effects in &result.effects {
+            let _ = self.document.apply_drive_effects(state, effects);
+        }
+        for (key, mods) in keys {
+            apply_drive_key(state, &key, mods);
+        }
+        if ends_column_drag(line) {
+            state.end_column_drag();
+        }
+        result
+    }
+
     /// Routes one host event to the terminal hole first, then the root
     /// document — the shared path behind both the windowed and offscreen
     /// front ends. Returns the dispatch outcome and whether the terminal
@@ -212,30 +253,13 @@ impl SlabRenderer {
         (self.dispatch(state, event), false)
     }
 
-    /// Solves the document for `state` and returns the flattened frame whose
-    /// semantic scene automation inspects.
-    pub(crate) fn semantic_frame(&mut self, state: &AppState) -> Frame {
-        self.document.frame(state)
-    }
-
-    /// Returns the per-instance scene-string pool backing role, label, and
-    /// description references; index zero is the absent sentinel.
-    pub(crate) fn scene_strings(&self) -> &[String] {
-        &self.document.doc.inst.st.scene_strs
-    }
-
-    /// Returns the authored key path for a scene node, empty when unkeyed.
-    pub(crate) fn node_key(&self, node: u32) -> String {
-        let inst = &self.document.doc.inst;
-        slab_kernel::scene::key_of(&inst.doc, &inst.st.lists, node)
-    }
 
     /// Returns selected text from the focused root-document editor.
     pub(crate) fn selected_text(&self) -> Option<String> {
         self.document.selected_text()
     }
 
-    fn prepare_frames(&mut self, state: &AppState) {
+    fn sync_terminal(&mut self, state: &AppState) {
         self.terminal_hole.sync(
             state.terminal.as_ref(),
             f64::from(state.settings.terminal_font_size),
@@ -248,6 +272,10 @@ impl SlabRenderer {
             natural.0,
             natural.1,
         );
+    }
+
+    fn prepare_frames(&mut self, state: &AppState) {
+        self.sync_terminal(state);
         self.document.update_frame(state, &mut self.frame);
         self.terminal_rect = kframe::inst_holes_retained(&self.document.doc.inst)
             .into_iter()
@@ -341,4 +369,52 @@ impl SlabRenderer {
         }
         Ok(pixels)
     }
+}
+
+fn clipboard_shortcut(key: &str, mods: u32) -> bool {
+    mods & (M_CTRL | M_META) != 0
+        && key.chars().count() == 1
+        && matches!(
+            key.chars()
+                .next()
+                .map(|character| character.to_ascii_lowercase()),
+            Some('c' | 'x' | 'v')
+        )
+}
+
+fn apply_drive_key(state: &mut AppState, key: &str, mods: u32) {
+    if clipboard_shortcut(key, mods)
+        && key.eq_ignore_ascii_case("c")
+        && state.main_view == MainView::Diff
+    {
+        state.dispatch(UiAction::CopyDiffText);
+    }
+    let command = mods & M_META != 0;
+    let primary = mods & (M_CTRL | M_META) != 0;
+    let shift = mods & M_SHIFT != 0;
+    state.handle_key_shortcut(key, command, primary, shift);
+}
+
+fn ends_column_drag(line: &str) -> bool {
+    let Ok(request) = serde_json::from_str::<serde_json::Value>(line) else {
+        return false;
+    };
+    let Some(method) = request.get("method").and_then(serde_json::Value::as_str) else {
+        return false;
+    };
+    if method == "input.click" {
+        return true;
+    }
+    let Some(kind) = request
+        .get("params")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|params| params.get("type"))
+        .and_then(serde_json::Value::as_str)
+    else {
+        return false;
+    };
+    matches!(
+        (method, kind),
+        ("input.pointer", "down" | "up") | ("input.event", "pointer-down" | "pointer-up")
+    )
 }

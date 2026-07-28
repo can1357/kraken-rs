@@ -13,6 +13,7 @@ path = "src/main.rs"
 arboard = "3.6"
 anyhow = "1.0"
 slab-kernel = { git = "https://github.com/stencil-hq/slab.git", branch = "main" }
+slab-drive = { git = "https://github.com/stencil-hq/slab.git", branch = "main" }
 slab-fonts = { git = "https://github.com/stencil-hq/slab.git", branch = "main" }
 slab-native = { git = "https://github.com/stencil-hq/slab.git", branch = "main" }
 slab-slir = { git = "https://github.com/stencil-hq/slab.git", branch = "main" }
