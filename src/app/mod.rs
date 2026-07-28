@@ -652,11 +652,7 @@ impl ApplicationHandler<UserEvent> for NativeApplication {
             self.request_redraw();
         }
 
-        if self
-            .state
-            .as_ref()
-            .is_none_or(|state| !state.animating())
-        {
+        if self.state.as_ref().is_none_or(|state| !state.animating()) {
             self.next_animation_frame = None;
         }
         let auto_fetch = self

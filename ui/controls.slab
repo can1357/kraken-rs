@@ -83,11 +83,11 @@ def Codicon(glyph="", size=14, tone=#A3A3A3) export {
 // to right, so the strip reads as a wave rather than a spinner or a bar. The
 // strip keeps its 2px box when idle so nothing below it shifts.
 def WaveSegment(tone=#00000000) export {
-  rect w=fill h=8 bg=tone
+  rect w=fill h=2 bg=tone
 }
 
 def LoadingWave() {
-  row#loading-wave w=fill h=8 gap=0 {
-    rect w=fill h=8 bg=#A878F5
+  row#loading-wave w=fill h=2 gap=0 inert {
+    when wave.active { each param.wave.segments #wave-segments }
   }
 }

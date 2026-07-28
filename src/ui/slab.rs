@@ -1847,13 +1847,12 @@ fn wave_segments(time: f32) -> Vec<WaveSegmentsItem> {
     (0..WAVE_SEGMENTS)
         .map(|index| {
             let position = index.to_f32().unwrap_or(0.0) / count;
-            let phase =
-                (position * WAVE_CYCLES - time * WAVE_SPEED) * std::f32::consts::TAU;
+            let phase = (position * WAVE_CYCLES - time * WAVE_SPEED) * std::f32::consts::TAU;
             let swell = (0.5 + 0.5 * phase.sin()).powf(2.2);
             let alpha = (swell * WAVE_PEAK_ALPHA * 255.0).to_u8().unwrap_or(0);
             WaveSegmentsItem {
                 key: Some(format!("wave-{index}")),
-                tone: color_alpha(PURPLE, alpha.max(200)),
+                tone: color_alpha(PURPLE, alpha),
             }
         })
         .collect()
@@ -4908,6 +4907,40 @@ mod tests {
     };
 
     use super::*;
+
+    /// The strip must actually travel and stay subtle: a static or opaque
+    /// wave is the bug this guards. Alphas are compared as a whole sequence
+    /// because any single segment can coincide across two phases.
+    #[test]
+    fn loading_wave_travels_and_stays_within_its_alpha_budget() {
+        let alphas = |time: f32| {
+            wave_segments(time)
+                .into_iter()
+                .map(|segment| segment.tone.to_le_bytes()[3])
+                .collect::<Vec<_>>()
+        };
+        let start = alphas(0.0);
+        assert_eq!(start.len(), WAVE_SEGMENTS);
+
+        // A quarter cycle of travel must move the crest.
+        let quarter = 0.25 / WAVE_SPEED;
+        assert_ne!(start, alphas(quarter), "the wave must travel over time");
+
+        // One full cycle returns to the same shape: the motion is periodic,
+        // so the strip never drifts or accumulates error over a long load.
+        let period = 1.0 / WAVE_SPEED;
+        assert_eq!(start, alphas(period), "travel is periodic");
+
+        let peak = (WAVE_PEAK_ALPHA * 255.0).to_u8().unwrap_or(u8::MAX);
+        assert!(
+            alphas(quarter).iter().all(|alpha| *alpha <= peak),
+            "no segment may exceed the subtle alpha budget"
+        );
+        assert!(
+            start.iter().any(|alpha| *alpha > 0),
+            "some segment is lit at any phase"
+        );
+    }
 
     /// The pushed window must always cover the visible viewport with overscan
     /// on both sides and stay inside the document, at any scroll depth. A gap
