@@ -246,6 +246,11 @@ impl SlabDocument {
 
     /// Dispatches one real host event through Slab and translates every signal.
     pub(crate) fn dispatch(&mut self, state: &mut AppState, event: &Event) -> SlabDispatch {
+        if event.etype == slab_kernel::dispatch::E_RESIZE {
+            // Divider overlays clamp against the retained scene; solve a resize
+            // from the new viewport before syncing any state-owned extents.
+            self.doc.inst.solved = false;
+        }
         let (effects, signals) = self.doc.dispatch(event);
         let host_commands = self.apply_effects(state, &effects, signals);
         // The kernel divider has no begin/end signals: `resize_to` arms
@@ -315,6 +320,7 @@ impl SlabDocument {
     }
 
     /// Synchronizes every visible surface and solves one owned paint frame.
+    #[cfg(test)]
     pub(crate) fn frame(&mut self, state: &AppState) -> Frame {
         self.sync(state);
         self.doc.frame(f64::from(state.animation_time()) * 1_000.0)
@@ -332,6 +338,14 @@ impl SlabDocument {
 
     /// Projects application state into the retained instance without solving it.
     pub(crate) fn sync(&mut self, state: &AppState) {
+        if self.doc.inst.st.env.vw != f64::from(state.width)
+            || self.doc.inst.st.env.vh != f64::from(state.height)
+        {
+            // Divider overlays are clamped against the retained scene while
+            // syncing; a resize must solve from the new viewport, not the old
+            // one, before those writes happen.
+            self.doc.inst.solved = false;
+        }
         self.sync_diff_data(state);
         self.sync_scalars(state);
         // Scroll lands before the lists so the diff window tracks the same
@@ -343,10 +357,7 @@ impl SlabDocument {
     }
 
     fn sync_scalars(&mut self, state: &AppState) {
-        let welcome = state
-            .tabs
-            .get(state.active_tab)
-            .is_some_and(|tab| tab.path.is_none());
+        let welcome = state.welcome_visible();
         let layout = layout::Layout::for_state(state);
         let wip_detail = layout.detail.is_some() && layout::detail_shows_wip(state);
         let multi_detail = layout.detail.is_some()
@@ -440,6 +451,10 @@ impl SlabDocument {
         // header dividers track the same clamped widths the body rows render
         // (window resizes and column_layout's floors included). Bare "#id"
         // keys resolve via node_by_key's final-segment fallback.
+        self.doc
+            .set_divider("#sidebar-split", f64::from(layout.sidebar.width));
+        self.doc
+            .set_divider("#detail-split", f64::from(layout.center.width));
         for (key, width) in [
             ("#graph-ref-divider", ref_width),
             ("#graph-lane-divider", graph_width),
@@ -564,7 +579,7 @@ impl SlabDocument {
                 .as_deref()
                 .unwrap_or("Ask Kraken AI about this repository."),
         );
-        let loading = state.loading();
+        let loading = state.loading_wave();
         self.doc.set_wave_active(loading);
         if loading {
             self.doc
@@ -1116,11 +1131,7 @@ impl SlabDocument {
 
     fn sync_lists(&mut self, state: &AppState) {
         self.doc.set_tabs(&tabs(state));
-        let welcome = state
-            .tabs
-            .get(state.active_tab)
-            .is_some_and(|tab| tab.path.is_none());
-        let workspace_visible = !welcome && !state.preferences_open;
+        let workspace_visible = state.workspace_visible();
 
         if workspace_visible {
             let sidebar_key = sidebar_projection_key(state);
@@ -1164,7 +1175,7 @@ impl SlabDocument {
             self.sync_diff_window(state, layout.center.height);
             self.sync_diff_map(state, layout.center.height);
         }
-        if welcome {
+        if state.welcome_visible() {
             self.doc.set_recent_repos(&recent_rows(state));
         }
         if state.preferences_open {
@@ -5037,6 +5048,7 @@ mod tests {
             clicks: 1,
             key: String::new(),
             text: String::new(),
+            clauses: Vec::new(),
             mods: 0,
         }
     }

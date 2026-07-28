@@ -33,10 +33,13 @@ impl Layout {
         let height = px(state.height);
         let chrome_height = CHROME_HEIGHT;
         let status_height = STATUS_BAR_HEIGHT;
+        // Pane preferences survive window shrinks (state keeps the dragged
+        // extents); clamp them here so the effective layout always fits the
+        // live viewport and growing the window restores the preference.
         let sidebar_width = if state.settings.sidebar_collapsed {
             SIDEBAR_RAIL_WIDTH
         } else {
-            state.sidebar_width
+            state.sidebar_width.min(width * 0.45)
         };
         let welcome = state
             .tabs
@@ -50,6 +53,7 @@ impl Layout {
         let detail_width = if show_detail {
             state
                 .detail_width
+                .min(width * 0.55)
                 .min((width - sidebar_width - 320.0).max(0.0))
         } else {
             0.0

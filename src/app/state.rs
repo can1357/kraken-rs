@@ -618,12 +618,14 @@ impl AppState {
         self.started.elapsed().as_secs_f32()
     }
 
-    /// Updates the physical extent used by layout and splitter clamping.
+    /// Updates the viewport extent used by layout and splitter clamping.
+    ///
+    /// Pane preferences are left untouched; [`crate::ui::layout::Layout`]
+    /// clamps them to the live viewport, so shrinking and re-growing the
+    /// window restores the preferred extents.
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
         self.width = width.max(1);
         self.height = height.max(1);
-        self.sidebar_width = self.sidebar_width.min(px(width) * 0.45);
-        self.detail_width = self.detail_width.min(px(width) * 0.55);
         self.resize_terminal();
     }
 
@@ -2410,22 +2412,18 @@ impl AppState {
         self.drag = None;
     }
 
-    /// Ends a Slab-driven graph column drag when the pointer releases.
+    /// Ends a Slab-driven divider drag when the pointer releases.
     ///
     /// The kernel divider delivers live resize signals without a dedicated
-    /// begin/end pair, so `resize_to` arms `self.drag` and this clears it on
-    /// pointer-up — the same window HEAD spanned from `BeginResize` to
-    /// `end_drag`, including latching `graph_column_explicit` on release.
+    /// begin/end pair, so `resize_to` arms `self.drag` for any divider target
+    /// and this clears it on pointer-up. Leaving a pane drag armed after a
+    /// tiny sidebar move makes later window resizes use explicit-drag floors
+    /// instead of restoring the normal layout.
     pub(crate) fn end_column_drag(&mut self) {
-        if matches!(
-            self.drag,
-            Some(ResizeTarget::RefColumn | ResizeTarget::GraphColumn | ResizeTarget::MessageColumn)
-        ) {
-            if self.drag == Some(ResizeTarget::GraphColumn) {
-                self.graph_column_explicit = true;
-            }
-            self.drag = None;
+        if self.drag == Some(ResizeTarget::GraphColumn) {
+            self.graph_column_explicit = true;
         }
+        self.drag = None;
     }
 
     /// Replaces an application edit buffer with the value committed by Slab.
@@ -2763,20 +2761,46 @@ impl AppState {
         self.diff_scroll_updated.is_some()
     }
 
-    /// True while repository work the user is waiting on is in flight.
+    /// True when the active tab has no repository, so the welcome surface is
+    /// what the shell shows.
+    pub(crate) fn welcome_visible(&self) -> bool {
+        self.tabs
+            .get(self.active_tab)
+            .is_some_and(|tab| tab.path.is_none())
+    }
+
+    /// True when the workspace is actually on screen: a repository tab, with
+    /// preferences not covering the shell.
     ///
-    /// Drives the loading wave: queued jobs, an unfinished history page, and
-    /// the window where only the cached snapshot has been painted all count.
-    pub(crate) fn loading(&self) -> bool {
+    /// Single source of truth for everything mounted inside the workspace.
+    pub(crate) fn workspace_visible(&self) -> bool {
+        !self.welcome_visible() && !self.preferences_open
+    }
+
+    /// True while repository work the user is waiting on is in flight:
+    /// queued jobs, an unfinished history page, or the window where only the
+    /// cached snapshot has been painted.
+    fn loading(&self) -> bool {
         self.busy_jobs > 0 || self.loading_history || self.provisional
+    }
+
+    /// True while the loading wave is both wanted and actually mounted.
+    ///
+    /// The strip lives inside the workspace, so work started from the welcome
+    /// surface (a clone, an init) or running behind Preferences must not
+    /// light it — and must not schedule animation frames for a node that
+    /// cannot be seen.
+    pub(crate) fn loading_wave(&self) -> bool {
+        self.loading() && self.workspace_visible()
     }
 
     /// True while any animation needs another frame scheduled.
     ///
     /// The event loop arms its frame timer from this, so every animated
-    /// surface must be represented here or it freezes between input events.
+    /// surface must be represented here or it freezes between input events —
+    /// and nothing invisible may appear here, or it burns frames for nothing.
     pub(crate) fn animating(&self) -> bool {
-        self.diff_scroll_animating() || self.loading()
+        self.diff_scroll_animating() || self.loading_wave()
     }
 
     pub(crate) fn advance_animations(&mut self) {
@@ -4141,6 +4165,45 @@ mod tests {
             state.settings.recent_repos.first().map(|entry| &entry.path),
             Some(&repo),
             "promotion records the repository"
+        );
+    }
+
+    /// The wave lives inside the workspace, so in-flight work must only light
+    /// it — and only schedule animation frames — when that surface is on
+    /// screen. A clone from the welcome screen or a fetch behind Preferences
+    /// would otherwise repaint at 60fps with nothing visible.
+    #[test]
+    fn work_on_hidden_surfaces_neither_paints_nor_schedules_the_wave() {
+        let settings_directory = tempfile::tempdir().expect("temporary settings directory");
+        let store = SettingsStore::at(settings_directory.path().join("settings.toml"));
+        let mut state = AppState::base(1_200, 800, store, Settings::default());
+        assert!(!state.workspace_visible(), "a fresh tab shows welcome");
+
+        // Models the busy state a clone or init leaves behind, without
+        // queueing real network work on the shared worker.
+        state.busy_jobs = 1;
+        assert!(
+            !state.loading_wave(),
+            "an unmounted wave must stay inactive"
+        );
+        assert!(
+            !state.animating(),
+            "no frames may be scheduled for an invisible surface"
+        );
+
+        // The same in-flight work inside a workspace does drive the wave.
+        state.tabs[state.active_tab].path = Some(PathBuf::from("/tmp/repo"));
+        assert!(state.loading_wave() && state.animating());
+
+        // Preferences replaces the whole shell, unmounting the strip again.
+        state.preferences_open = true;
+        assert!(
+            !state.loading_wave(),
+            "work behind Preferences must not light the wave"
+        );
+        assert!(
+            !state.animating(),
+            "nor schedule frames while Preferences covers the shell"
         );
     }
 

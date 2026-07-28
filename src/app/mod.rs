@@ -134,6 +134,7 @@ fn base_event(
         clicks: 0,
         key: String::new(),
         text: String::new(),
+        clauses: Vec::new(),
         mods: modifier_bits(modifiers),
     }
 }
@@ -370,14 +371,14 @@ impl ApplicationHandler<UserEvent> for NativeApplication {
             }
             WindowEvent::Resized(size) => {
                 renderer.resize(size.width, size.height);
-                let (width, height) = logical_window_size(renderer.window());
+                // Trust the resize event itself: re-querying the window can
+                // lag during the native transaction and leave layout solved
+                // against a stale extent while the surface has already grown.
+                let (width, height) = logical_size(size, renderer.window().scale_factor());
                 state.resize(width, height);
                 let mut event = base_event(slab_kernel::dispatch::E_RESIZE, state, self.modifiers);
                 event.dx = f64::from(width);
                 event.dy = f64::from(height);
-                // Render synchronously inside the resize transaction; the
-                // repaint effect must not queue a second render (see
-                // `dispatch_without_redraw`).
                 let outcome = renderer.dispatch_without_redraw(state, &event);
                 apply_host_commands(event_loop, renderer, outcome.host_commands);
                 render_now(state, renderer);
@@ -385,7 +386,7 @@ impl ApplicationHandler<UserEvent> for NativeApplication {
             WindowEvent::ScaleFactorChanged { .. } => {
                 let size = renderer.window().inner_size();
                 renderer.resize(size.width, size.height);
-                let (width, height) = logical_window_size(renderer.window());
+                let (width, height) = logical_size(size, renderer.window().scale_factor());
                 state.resize(width, height);
                 let mut event = base_event(slab_kernel::dispatch::E_RESIZE, state, self.modifiers);
                 event.dx = f64::from(width);
