@@ -2524,7 +2524,17 @@ fn resolve_branch_commit<'repo>(
                 .with_context(|| format!("peel branch {branch}"));
         }
     }
-    bail!("branch {branch} does not exist")
+    if let Ok(object) = repository.revparse_single(branch) {
+        if let Ok(commit) = object.peel_to_commit() {
+            return Ok(commit);
+        }
+    }
+    if let Ok(object) = repository.revparse_single(&format!("refs/tags/{branch}")) {
+        if let Ok(commit) = object.peel_to_commit() {
+            return Ok(commit);
+        }
+    }
+    bail!("branch or ref {branch} does not exist")
 }
 
 fn integrate_commit(
@@ -3695,6 +3705,23 @@ mod tests {
                 .message(),
             Some("release notes")
         );
+    }
+    #[test]
+    fn merge_and_fast_forward_support_tags() {
+        let (directory, repository) = repository_with_commit();
+        let backend = GitBackend::discover(directory.path()).expect("discover repository");
+
+        backend.create_branch("feature", Some("HEAD")).expect("create branch");
+        backend.checkout("feature").expect("checkout feature");
+        let commit2 = commit_file(&repository, "file.txt", "line 2\n", "feat: commit 2");
+
+        backend.create_tag("v1.0", "HEAD", None).expect("create tag");
+
+        backend.checkout("main").expect("checkout main");
+        backend.merge("v1.0").expect("merge tag into main");
+
+        let main_head = repository.head().expect("head").target().expect("head target");
+        assert_eq!(main_head, commit2);
     }
 
     #[test]

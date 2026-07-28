@@ -20,9 +20,13 @@ params sidebar {
 // icons to the row's right edge (and made them hostage to patch evaluation).
 def SidebarRow(caret="", icon="", label="", indent=0, caret_w=0, icon_w=20, gsize=13, selected=false, tone=#737373) export {
   row w=fill h=24 pad=0,6 {
-    row w=fill h=24 radius=4 align=center clip act=sidebar-row context=sidebar-context role="treeitem" label=label {
+    row key=row w=fill h=24 radius=4 align=center clip \
+      act=sidebar-row context=sidebar-context drag=graph-ref-drag drop=graph-ref-drop drag-ghost \
+      role="treeitem" label=label {
       when selected { bg=color.accentSoft }
       when hover { bg=color.hover }
+      when dragging { opacity=0.72 }
+      when drop { bg=color.yellowSoft; stroke=color.yellow; stroke-w=1.6 }
       rect w=indent h=1
       row w=caret_w h=fill align=center clip { Codicon glyph=caret size=11 tone=color.dim }
       row w=icon_w h=fill align=center clip color=tone { Codicon glyph=icon size=gsize tone=tone }

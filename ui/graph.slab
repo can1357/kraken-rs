@@ -15,7 +15,7 @@ def GraphRefChip(label="", show_label=true, label_w=0, lead="", show_lead=false,
   // exactly that clip window (pad_r = 2), and the inner `clip` row cuts
   // overflowing runs mid-glyph like HEAD's clipped scene text.
   row key=chip w=width h=18 pad=2,5 radius=3 bg=chip_bg stroke=border stroke-w=1 stroke-align=inside \
-    act=graph-ref context=graph-ref-context drag=graph-ref-drag drop=graph-ref-drop \
+    act=graph-ref context=graph-ref-context drag=graph-ref-drag drop=graph-ref-drop drag-ghost \
     role="button" label=label {
     // Branch/+N/HEAD chips: text origin badge.x + 6, right clip badge - 2.
     when label_inset { pad=2,2,2,6 }
