@@ -1519,7 +1519,7 @@ fn graph_rows(state: &AppState) -> Vec<GraphRowsItem> {
     let graph_width = columns.graph.width;
     let ref_width = columns.refs.width;
     let date_width = columns.date.width;
-    let message_width = columns.message.width;
+    let _message_width = columns.message.width;
     let wip_rows = snapshot.wip_rows();
     let total_rows = snapshot.commits.len().saturating_add(wip_rows);
     let search_results = state.search_results();

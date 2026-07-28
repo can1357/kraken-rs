@@ -39,7 +39,7 @@ def Field(value, placeholder, focus_action, change_action) {
     when hover { stroke=color.borderHard }
     stack w=fill h=fill {
       text placeholder style=text.ui color=color.dim nowrap ellipsis opacity=0
-      text value style=text.ui w=fill h=fill nowrap ellipsis field=change_action
+      text value style=text.ui w=fill h=fill nowrap ellipsis field=change_action field-sync=host
     }
   }
 }
@@ -49,7 +49,7 @@ def SubmitField(value, placeholder, focus_action, change_action, submit_action) 
     when hover { stroke=color.borderHard }
     stack w=fill h=fill {
       text placeholder style=text.ui color=color.dim nowrap ellipsis opacity=0
-      text value style=text.ui w=fill h=fill nowrap ellipsis field=change_action submit=submit_action
+      text value style=text.ui w=fill h=fill nowrap ellipsis field=change_action submit=submit_action field-sync=host
     }
   }
 }
@@ -59,7 +59,7 @@ def MultilineField(value, placeholder, focus_action, change_action) {
     when hover { stroke=color.borderHard }
     stack w=fill h=fill {
       text placeholder style=text.ui color=color.dim w=fill opacity=0
-      text value style=text.ui w=fill h=fill field=change_action multiline
+      text value style=text.ui w=fill h=fill field=change_action multiline field-sync=host
     }
   }
 }

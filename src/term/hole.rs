@@ -587,7 +587,6 @@ impl TerminalHole {
                         self.regular_font
                     };
                     frame.ops.push(FrameOp::Text(OpText {
-                        node: 0,
                         x: column as f64 * cell_width,
                         y_baseline: row as f64 * cell_height + self.baseline(font),
                         str_ref: string_ref,
@@ -595,15 +594,10 @@ impl TerminalHole {
                         font,
                         size: self.font_size,
                         weight: if bold { 700 } else { 400 },
-                        tracking: 0.0,
                         color: foreground,
                         opacity: 1.0,
-                        strike: false,
                         color_kind: 1,
-                        gx: 0.0,
-                        gy: 0.0,
-                        gw: 0.0,
-                        gh: 0.0,
+                        ..Default::default()
                     }));
                 }
                 column = end.max(column + 1);
@@ -682,7 +676,6 @@ impl TerminalHole {
             self.regular_font
         };
         frame.ops.push(FrameOp::Text(OpText {
-            node: 0,
             x,
             y_baseline: y + self.baseline(font),
             str_ref: string_ref,
@@ -690,15 +683,10 @@ impl TerminalHole {
             font,
             size: self.font_size,
             weight: if bold { 700 } else { 400 },
-            tracking: 0.0,
             color,
             opacity: 1.0,
-            strike: false,
             color_kind: 1,
-            gx: 0.0,
-            gy: 0.0,
-            gw: 0.0,
-            gh: 0.0,
+            ..Default::default()
         }));
     }
 
