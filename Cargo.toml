@@ -42,6 +42,7 @@ vte = "0.15"
 unicode-width = "0.2"
 wgpu = "30"
 winit = "0.30.12"
+gix = { version = "0.86", default-features = false, features = ["max-performance-safe", "comfort", "revision", "sha1", "status"] }
 
 [dev-dependencies]
 tempfile = "3.20"

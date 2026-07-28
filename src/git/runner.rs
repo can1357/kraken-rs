@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     path::PathBuf,
     thread,
     time::{Duration, Instant},
@@ -16,6 +17,7 @@ use crate::{
             CommitDetail, CommitInput, DiffDocument, DiffLineSelection, DiffRequest, PullOperation,
             RangeDetail, RepoSnapshot, WorkingTree,
         },
+        store::{self, RepoStore},
     },
 };
 
@@ -221,6 +223,10 @@ pub(crate) enum GitJobKind {
         url: String,
         destination: PathBuf,
     },
+    /// Creates an empty repository with HEAD on the configured default branch.
+    Init {
+        path: PathBuf,
+    },
 }
 
 impl GitJobKind {
@@ -296,6 +302,7 @@ impl GitJobKind {
             }
             Self::IgnorePattern { pattern, .. } => Some(format!("Ignoring {pattern}")),
             Self::Clone { .. } => Some("Repository cloned".to_owned()),
+            Self::Init { .. } => Some("Repository created".to_owned()),
         }
     }
 }
@@ -327,6 +334,8 @@ pub(crate) enum GitPayload {
         message: Option<String>,
     },
     Cloned(PathBuf),
+    /// A freshly initialized repository ready to be opened.
+    Created(PathBuf),
 }
 
 /// One worker completion with a displayable error on failure.
@@ -379,6 +388,8 @@ fn worker_loop(
     let mut _watcher: Option<RecommendedWatcher> = None;
     let mut watched = None;
     let mut pending_refresh = None;
+    // Per-repository caches shared by every job the worker runs; see RepoStore.
+    let mut stores: HashMap<PathBuf, RepoStore> = HashMap::new();
     loop {
         while let Ok(event) = filesystem_events.try_recv() {
             if event.as_ref().is_ok_and(event_is_relevant) {
@@ -387,7 +398,7 @@ fn worker_loop(
         }
         if pending_refresh.is_some_and(|started| started.elapsed() >= Duration::from_millis(400)) {
             pending_refresh = None;
-            if !refresh_watched(&mut watched, events, event_loop_proxy) {
+            if !refresh_watched(&mut watched, &mut stores, events, event_loop_proxy) {
                 break;
             }
         }
@@ -397,7 +408,7 @@ fn worker_loop(
                 let path = job.path.clone();
                 let limit = snapshot_limit(&job.kind);
                 let kind = job.kind.clone();
-                let result = execute(job).map_err(|error| format!("{error:#}"));
+                let result = execute(job, &mut stores).map_err(|error| format!("{error:#}"));
                 match (limit, &result) {
                     (Some(limit), Ok(payload)) => {
                         if let Some(snapshot) = payload_snapshot(payload) {
@@ -448,9 +459,11 @@ fn arm_watcher(
         let _ = event_sender.send(event);
     })?;
     watcher.watch(path, RecursiveMode::Recursive)?;
-    let repository = git2::Repository::discover(path)
-        .map_err(|error| notify::Error::generic(&error.to_string()))?;
-    watcher.watch(repository.path(), RecursiveMode::Recursive)?;
+    let git_dir = store::open_repository(path)
+        .map_err(|error| notify::Error::generic(&error.to_string()))?
+        .path()
+        .to_owned();
+    watcher.watch(&git_dir, RecursiveMode::Recursive)?;
     Ok(watcher)
 }
 
@@ -472,6 +485,7 @@ fn event_is_relevant(event: &Event) -> bool {
 /// and a full snapshot only when a branch, tag, or HEAD actually moved.
 fn refresh_watched(
     watched: &mut Option<WatchedRepository>,
+    stores: &mut HashMap<PathBuf, RepoStore>,
     events: &Sender<GitEvent>,
     event_loop_proxy: &Option<EventLoopProxy<UserEvent>>,
 ) -> bool {
@@ -491,7 +505,8 @@ fn refresh_watched(
         repository.working.clone_from(&working);
         GitPayload::WorkingStatus(working)
     } else {
-        let Ok(snapshot) = backend.snapshot(repository.limit) else {
+        let store = store_for(stores, &backend);
+        let Ok(snapshot) = backend.snapshot_cached(store, repository.limit) else {
             return true;
         };
         repository.refs_sig = snapshot.refs_sig;
@@ -575,7 +590,8 @@ fn snapshot_limit(kind: &GitJobKind) -> Option<usize> {
         GitJobKind::LoadDetail { .. }
         | GitJobKind::LoadRangeDetail { .. }
         | GitJobKind::LoadDiff { .. }
-        | GitJobKind::Clone { .. } => None,
+        | GitJobKind::Clone { .. }
+        | GitJobKind::Init { .. } => None,
     }
 }
 
@@ -588,11 +604,16 @@ fn payload_snapshot(payload: &GitPayload) -> Option<&RepoSnapshot> {
         | GitPayload::RangeDetail(_)
         | GitPayload::Diff(_)
         | GitPayload::WorkingStatus(_)
-        | GitPayload::Cloned(_) => None,
+        | GitPayload::Cloned(_)
+        | GitPayload::Created(_) => None,
     }
 }
 
-fn execute(job: GitJob) -> anyhow::Result<GitPayload> {
+fn execute(job: GitJob, stores: &mut HashMap<PathBuf, RepoStore>) -> anyhow::Result<GitPayload> {
+    if let GitJobKind::Init { path } = &job.kind {
+        GitBackend::init_repository(path, job.settings.default_branch_name.trim())?;
+        return Ok(GitPayload::Created(path.clone()));
+    }
     if let GitJobKind::Clone { url, destination } = &job.kind {
         let name = url
             .trim_end_matches('/')
@@ -601,14 +622,19 @@ fn execute(job: GitJob) -> anyhow::Result<GitPayload> {
             .unwrap_or("repository")
             .trim_end_matches(".git");
         let target = destination.join(name);
-        git2::Repository::clone(url, &target)?;
+        GitBackend::clone_repository(url, &target)?;
         return Ok(GitPayload::Cloned(target));
     }
     let message = job.kind.success_message();
     let backend = GitBackend::discover_with_settings(job.path, job.settings)?;
+    let store = store_for(stores, &backend);
     match job.kind {
-        GitJobKind::LoadSnapshot { limit } => backend.snapshot(limit).map(GitPayload::Snapshot),
-        GitJobKind::LoadHistory { limit } => backend.history(limit).map(GitPayload::History),
+        GitJobKind::LoadSnapshot { limit } => backend
+            .snapshot_cached(store, limit)
+            .map(GitPayload::Snapshot),
+        GitJobKind::LoadHistory { limit } => backend
+            .history_cached(store, limit)
+            .map(GitPayload::History),
         GitJobKind::LoadDetail { id, include_tree } => backend
             .commit_detail(&id, include_tree)
             .map(GitPayload::Detail),
@@ -618,39 +644,39 @@ fn execute(job: GitJob) -> anyhow::Result<GitPayload> {
         GitJobKind::LoadDiff { request } => backend.diff(&request).map(GitPayload::Diff),
         GitJobKind::StageLines { path, lines, limit } => {
             backend.stage_lines(&path, &lines)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::UnstageLines { path, lines, limit } => {
             backend.unstage_lines(&path, &lines)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::DiscardLines { path, lines, limit } => {
             backend.discard_lines(&path, &lines)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::DiscardFile { path, limit } => {
             backend.discard_file(&path)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::Stage { paths, limit } => {
             backend.stage(&paths)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::Unstage { paths, limit } => {
             backend.unstage(&paths)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::StageAll { limit } => {
             backend.stage_all()?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::UnstageAll { limit } => {
             backend.unstage_all()?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::Commit { input, limit } => {
             let id = backend.commit(&input)?;
-            refreshed(&backend, limit, Some(id), message)
+            refreshed(&backend, store, limit, Some(id), message)
         }
         GitJobKind::Reword {
             summary,
@@ -658,7 +684,7 @@ fn execute(job: GitJob) -> anyhow::Result<GitPayload> {
             limit,
         } => {
             let id = backend.reword(&summary, &body)?;
-            refreshed(&backend, limit, Some(id), message)
+            refreshed(&backend, store, limit, Some(id), message)
         }
         GitJobKind::SavePatch {
             id,
@@ -666,11 +692,11 @@ fn execute(job: GitJob) -> anyhow::Result<GitPayload> {
             limit,
         } => {
             backend.save_patch(&id, &destination)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::Checkout { branch, limit } => {
             backend.checkout(&branch)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::CreateBranch {
             branch,
@@ -678,11 +704,11 @@ fn execute(job: GitJob) -> anyhow::Result<GitPayload> {
             limit,
         } => {
             backend.create_branch(&branch, target.as_deref())?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::Fetch { prune, limit } => {
             backend.fetch(prune)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::AddRemote {
             name,
@@ -691,31 +717,31 @@ fn execute(job: GitJob) -> anyhow::Result<GitPayload> {
             limit,
         } => {
             backend.add_remote(&name, &url, push_url.as_deref())?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::Pull { operation, limit } => {
             backend.pull(operation)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::Push { limit } => {
             backend.push()?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::Stash { limit } => {
             backend.stash()?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::StashFile { path, limit } => {
             backend.stash_file(&path)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::PopStash { limit } => {
             backend.pop_stash()?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::FastForward { branch, limit } => {
             backend.fast_forward(&branch)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::RebaseOnto {
             source,
@@ -723,7 +749,7 @@ fn execute(job: GitJob) -> anyhow::Result<GitPayload> {
             limit,
         } => {
             backend.rebase_onto(&source, &target)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::FastForwardTo {
             source,
@@ -731,15 +757,15 @@ fn execute(job: GitJob) -> anyhow::Result<GitPayload> {
             limit,
         } => {
             backend.fast_forward_to(&source, &target)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::Merge { branch, limit } => {
             backend.merge(&branch)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::Rebase { branch, limit } => {
             backend.rebase(&branch)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::CreateTag {
             name,
@@ -748,15 +774,15 @@ fn execute(job: GitJob) -> anyhow::Result<GitPayload> {
             limit,
         } => {
             backend.create_tag(&name, &target, tag_message.as_deref())?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::CherryPick { id, limit } => {
             backend.cherry_pick(&id)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::Revert { id, limit } => {
             backend.revert(&id)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::Reset {
             target,
@@ -764,11 +790,11 @@ fn execute(job: GitJob) -> anyhow::Result<GitPayload> {
             limit,
         } => {
             backend.reset(&target, &mode)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::DeleteBranch { branch, limit } => {
             backend.delete_branch(&branch)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::RestoreBranch {
             branch,
@@ -776,7 +802,7 @@ fn execute(job: GitJob) -> anyhow::Result<GitPayload> {
             limit,
         } => {
             backend.restore_branch(&branch, &target)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::UndoBranchCreate {
             branch,
@@ -786,7 +812,7 @@ fn execute(job: GitJob) -> anyhow::Result<GitPayload> {
         } => {
             backend.checkout(&previous)?;
             backend.delete_branch_at(&branch, &target)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::RenameBranch {
             branch,
@@ -794,52 +820,65 @@ fn execute(job: GitJob) -> anyhow::Result<GitPayload> {
             limit,
         } => {
             backend.rename_branch(&branch, &new_name)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::ApplyStash { index, limit } => {
             backend.apply_stash(index)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::DropStash { index, limit } => {
             backend.drop_stash(index)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::DeleteTag { tag, limit } => {
             backend.delete_tag(&tag)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::InitGitflow { limit } => {
             backend.init_gitflow()?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::SparseCheckout { paths, limit } => {
             backend.sparse_checkout(paths.as_deref())?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::TrackLfsPattern { pattern, limit } => {
             backend.track_lfs_pattern(&pattern)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::IgnorePattern { pattern, limit } => {
             backend.append_ignore(&pattern)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
         GitJobKind::Lfs { operation, limit } => {
             backend.lfs(operation)?;
-            refreshed(&backend, limit, None, message)
+            refreshed(&backend, store, limit, None, message)
         }
-        GitJobKind::Clone { .. } => unreachable!("clone returns before repository discovery"),
+        GitJobKind::Clone { .. } | GitJobKind::Init { .. } => {
+            unreachable!("clone and init return before repository discovery")
+        }
     }
+}
+
+/// The persistent cache for the repository `backend` operates on.
+fn store_for<'a>(
+    stores: &'a mut HashMap<PathBuf, RepoStore>,
+    backend: &GitBackend,
+) -> &'a mut RepoStore {
+    stores
+        .entry(backend.path().to_owned())
+        .or_insert_with(|| RepoStore::new(backend.path().to_owned()))
 }
 
 fn refreshed(
     backend: &GitBackend,
+    store: &mut RepoStore,
     limit: usize,
     commit_id: Option<String>,
     message: Option<String>,
 ) -> anyhow::Result<GitPayload> {
     Ok(GitPayload::Mutated {
-        snapshot: backend.snapshot(limit)?,
+        snapshot: backend.snapshot_cached(store, limit)?,
         commit_id,
         message,
     })

@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     path::{Component, Path, PathBuf},
     sync::LazyLock,
 };
@@ -16,10 +16,11 @@ use syntect::{easy::HighlightLines, highlighting::ThemeSet, parsing::SyntaxSet};
 use crate::{
     app::{
         palette,
-        state::{AppState, FocusField, MainView, Overlay},
+        state::{AppState, DiffTextPoint, FocusField, MainView, Overlay},
     },
     git::models::{
-        ChangeKind, CommitSummary, DiffRow, DiffRowKind, DiffScope, FileChange, RefKind,
+        ChangeKind, CommitSummary, DiffDocument, DiffRow, DiffRowKind, DiffScope, FileChange,
+        RefKind,
         RepoSnapshot, WorkingFile, WorktreeInfo,
     },
     graph::avatars,
@@ -153,6 +154,60 @@ struct BranchProjectionKey {
     filter: String,
 }
 
+/// Diff document + view mode the [`DiffSync`] caches were computed for.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct DiffIdentity {
+    revision: u64,
+    file_view: bool,
+}
+
+/// Inputs of the last pushed diff row window; any change repushes the window.
+#[derive(PartialEq)]
+struct DiffWindowKey {
+    start: usize,
+    end: usize,
+    split: bool,
+    selected: Vec<usize>,
+    text_selection: Option<(DiffTextPoint, DiffTextPoint)>,
+    search_query: String,
+    search_cursor: usize,
+}
+
+/// Inputs of the last built diff minimap projection.
+#[derive(PartialEq)]
+struct DiffMapKey {
+    height_bits: u32,
+    hunk_row: Option<usize>,
+    selected: Vec<usize>,
+}
+
+/// Windowed projection of the active diff into the kernel row list.
+///
+/// Large diffs would stall the frame loop if every row were pushed through
+/// the typed list reconciler, so only the rows inside the scrolled window
+/// (snapped to [`DIFF_WINDOW_BLOCK`] boundaries) live in `param.diff.rows`;
+/// the `diff.pad_top`/`diff.pad_bottom` spacers keep the scroll extent equal
+/// to the full document, so kernel scrolling and the scrollbar stay exact.
+/// Everything here is derived state invalidated by `identity` or key changes.
+#[derive(Default)]
+struct DiffSync {
+    identity: Option<DiffIdentity>,
+    /// Rows in the full document (diff rows or file-view lines).
+    total: usize,
+    /// Widest row in characters, for the horizontal scroll extent.
+    max_columns: usize,
+    /// Byte range of every content line in the file view.
+    file_lines: Vec<(usize, usize)>,
+    /// Highlighted spans keyed by (row, pane slot); depends only on the text.
+    runs: HashMap<(usize, u8), Vec<DiffRowsOldRunsItem>>,
+    /// Search results for `search_key`: (row, side, start, end) columns.
+    search: Vec<(usize, u8, usize, usize)>,
+    search_key: Option<(String, bool)>,
+    window_key: Option<DiffWindowKey>,
+    map_key: Option<DiffMapKey>,
+    map: Vec<DiffMapItem>,
+}
+
 /// Owns the typed Slab document and projects application state into it.
 pub(crate) struct SlabDocument {
     pub(crate) doc: generated::Doc,
@@ -163,6 +218,7 @@ pub(crate) struct SlabDocument {
     sidebar_projection_key: Option<SidebarProjectionKey>,
     branch_projection_key: Option<BranchProjectionKey>,
     graph_avatar_versions: BTreeMap<String, u64>,
+    diff_sync: DiffSync,
 }
 
 impl SlabDocument {
@@ -177,6 +233,7 @@ impl SlabDocument {
             sidebar_projection_key: None,
             branch_projection_key: None,
             graph_avatar_versions: BTreeMap::new(),
+            diff_sync: DiffSync::default(),
         }
     }
 
@@ -268,9 +325,12 @@ impl SlabDocument {
 
     /// Projects application state into the retained instance without solving it.
     pub(crate) fn sync(&mut self, state: &AppState) {
+        self.sync_diff_data(state);
         self.sync_scalars(state);
-        self.sync_lists(state);
+        // Scroll lands before the lists so the diff window tracks the same
+        // offset the upcoming solve will use (seeks included).
         self.sync_scroll(state);
+        self.sync_lists(state);
         self.doc
             .set_env(f64::from(state.width), f64::from(state.height), true, false);
     }
@@ -290,7 +350,7 @@ impl SlabDocument {
         let snapshot = state.snapshot.as_ref();
         let working_count = snapshot.map_or(0, |snapshot| snapshot.working.files.len());
         let search_results = state.search_results();
-        let diff_search_results = state.diff_search_results();
+        let diff_search_count = self.diff_sync.search.len();
         let selected_file = state.selected_file.as_ref();
         let diff = state.diff.as_ref();
 
@@ -423,7 +483,7 @@ impl SlabDocument {
             .set_diff_search_open(state.focus == FocusField::DiffSearch);
         self.doc.set_diff_search(state.diff_search.text());
         self.doc
-            .set_diff_search_count(&match diff_search_results.len() {
+            .set_diff_search_count(&match diff_search_count {
                 0 => String::new(),
                 count => format!(
                     "{} / {count}",
@@ -505,8 +565,11 @@ impl SlabDocument {
         self.doc.set_diff_has_rows(has_rows);
         self.doc.set_diff_show_labels(has_rows);
         self.doc.set_diff_empty_message(empty_message);
-        self.doc
-            .set_diff_content_width(diff_content_width(state, viewport_width));
+        self.doc.set_diff_content_width(diff_content_width(
+            state,
+            viewport_width,
+            self.diff_sync.max_columns,
+        ));
 
         let (action_visible, action_label) =
             state
@@ -519,6 +582,174 @@ impl SlabDocument {
                 });
         self.doc.set_diff_file_action_visible(action_visible);
         self.doc.set_diff_file_action_label(action_label);
+    }
+
+    /// Refreshes the per-document diff caches (row totals, widest row,
+    /// file-view line index, search results) when the loaded diff or the
+    /// active search changes. Runs before the scalar sync so the width and
+    /// search-count params read current values.
+    fn sync_diff_data(&mut self, state: &AppState) {
+        let (renderable, _) = diff_render_status(state);
+        let identity = renderable.then(|| DiffIdentity {
+            revision: state.diff_revision(),
+            file_view: state.diff_file_view,
+        });
+        let sync = &mut self.diff_sync;
+        if sync.identity != identity {
+            sync.identity = identity;
+            sync.runs.clear();
+            sync.file_lines.clear();
+            sync.search.clear();
+            sync.search_key = None;
+            sync.window_key = None;
+            sync.map_key = None;
+            sync.map.clear();
+            (sync.total, sync.max_columns) = match (identity, state.diff.as_ref()) {
+                (Some(identity), Some(diff)) if identity.file_view => {
+                    let content = diff.content.as_deref().unwrap_or_default();
+                    let base = content.as_ptr() as usize;
+                    sync.file_lines = content
+                        .lines()
+                        .map(|line| {
+                            let start = line.as_ptr() as usize - base;
+                            (start, start + line.len())
+                        })
+                        .collect();
+                    let columns = content
+                        .lines()
+                        .map(|line| line.chars().count())
+                        .max()
+                        .unwrap_or(0);
+                    (sync.file_lines.len(), columns)
+                }
+                (Some(_), Some(diff)) => (
+                    diff.rows.len(),
+                    diff.rows
+                        .iter()
+                        .map(|row| {
+                            row.old_text
+                                .chars()
+                                .count()
+                                .max(row.new_text.chars().count())
+                        })
+                        .max()
+                        .unwrap_or(0),
+                ),
+                _ => (0, 0),
+            };
+        }
+        if identity.is_some() {
+            let key = (state.diff_search.text().to_owned(), state.diff_split);
+            if sync.search_key.as_ref() != Some(&key) {
+                sync.search = state.diff_search_results();
+                sync.search_key = Some(key);
+            }
+        }
+    }
+
+    /// Pushes the scrolled row window into `param.diff.rows` and sizes the
+    /// spacer params so the scroll extent always spans the full document.
+    fn sync_diff_window(&mut self, state: &AppState, viewport_height: f32) {
+        let sync = &mut self.diff_sync;
+        let (identity, total) = match sync.identity {
+            Some(identity) if sync.total > 0 => (identity, sync.total),
+            _ => {
+                if sync.window_key.take().is_some() {
+                    self.doc.set_diff_rows(&[]);
+                    self.doc.set_diff_pad_top(0.0);
+                    self.doc.set_diff_pad_bottom(0.0);
+                }
+                return;
+            }
+        };
+        // The kernel owns wheel/scrollbar motion; its retained offset (pushed
+        // pre-solve by sync_scroll for programmatic seeks) is what the next
+        // solve lays out, so the window derives from it, not from raw state.
+        let scroll = self.doc.get_scroll("diff-scroll", 0);
+        let (start, end) = diff_window(scroll, viewport_height, total);
+        let mut selected = state.diff_selected_rows.iter().copied().collect::<Vec<_>>();
+        selected.sort_unstable();
+        let key = DiffWindowKey {
+            start,
+            end,
+            split: state.diff_split,
+            selected,
+            text_selection: state.diff_text_selection,
+            search_query: state.diff_search.text().to_owned(),
+            search_cursor: state.diff_search_cursor,
+        };
+        if sync.window_key.as_ref() == Some(&key) {
+            return;
+        }
+        sync.window_key = Some(key);
+        let Some(diff) = state.diff.as_ref() else {
+            return;
+        };
+        let items = if identity.file_view {
+            let content = diff.content.as_deref().unwrap_or_default();
+            (start..end)
+                .map(|index| {
+                    let (from, to) = sync.file_lines[index];
+                    file_view_row(&mut sync.runs, diff.path.as_path(), index, &content[from..to])
+                })
+                .collect::<Vec<_>>()
+        } else {
+            (start..end)
+                .map(|index| {
+                    diff_row_item(
+                        state,
+                        diff.path.as_path(),
+                        index,
+                        &diff.rows[index],
+                        &mut sync.runs,
+                        &sync.search,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let row_height = f64::from(layout::DIFF_ROW_HEIGHT);
+        self.doc.set_diff_rows(&items);
+        self.doc
+            .set_diff_pad_top(start.to_f64().unwrap_or(0.0) * row_height);
+        self.doc
+            .set_diff_pad_bottom(total.saturating_sub(end).to_f64().unwrap_or(0.0) * row_height);
+    }
+
+    /// Rebuilds the bucketized minimap when its inputs change and pushes the
+    /// cached projection.
+    fn sync_diff_map(&mut self, state: &AppState, viewport_height: f32) {
+        let sync = &mut self.diff_sync;
+        let renderable = sync
+            .identity
+            .is_some_and(|identity| !identity.file_view && sync.total > 0);
+        if !renderable {
+            if sync.map_key.take().is_some() || !sync.map.is_empty() {
+                sync.map.clear();
+                self.doc.set_diff_map(&[]);
+            }
+            return;
+        }
+        let Some(diff) = state.diff.as_ref() else {
+            return;
+        };
+        let search_height = if state.focus == FocusField::DiffSearch {
+            38.0
+        } else {
+            0.0
+        };
+        let map_height = (viewport_height - 78.0 - 24.0 - search_height).max(1.0);
+        let mut selected = state.diff_selected_rows.iter().copied().collect::<Vec<_>>();
+        selected.sort_unstable();
+        let key = DiffMapKey {
+            height_bits: map_height.to_bits(),
+            hunk_row: diff.hunks.get(state.current_hunk).copied(),
+            selected,
+        };
+        if sync.map_key.as_ref() != Some(&key) {
+            sync.map = diff_map_rows(diff, &key, map_height);
+            sync.map_key = Some(key);
+        }
+        self.doc.set_diff_map(&sync.map);
     }
 
     fn sync_detail_scalars(&mut self, state: &AppState) {
@@ -875,9 +1106,8 @@ impl SlabDocument {
             self.doc.set_detail_commits(&detail_commit_rows(state));
         }
         if workspace_visible && state.main_view == MainView::Diff {
-            self.doc.set_diff_rows(&diff_rows(state));
-            self.doc
-                .set_diff_map(&diff_map_rows(state, layout.center.height));
+            self.sync_diff_window(state, layout.center.height);
+            self.sync_diff_map(state, layout.center.height);
         }
         if welcome {
             self.doc.set_recent_repos(&recent_rows(state));
@@ -2637,21 +2867,21 @@ fn diff_text_side(state: &AppState, row: usize, x: f64, scroll_x: f64) -> Option
         });
     }
     let layout = layout::Layout::for_state(state);
-    let width = diff_content_width(state, (layout.center.width - 20.0).max(0.0));
+    let width = diff_split_width((layout.center.width - 20.0).max(0.0));
     let start = f64::from(layout.center.x) - scroll_x;
     Some(u8::from(x >= start + width * 0.5))
 }
 
 fn diff_text_column(state: &AppState, side: u8, x: f64, scroll_x: f64) -> usize {
     let layout = layout::Layout::for_state(state);
-    let width = diff_content_width(state, (layout.center.width - 20.0).max(0.0));
     let start = f64::from(layout.center.x) - scroll_x;
     let text_start = if state.diff_split {
+        let width = diff_split_width((layout.center.width - 20.0).max(0.0));
         start + if side == 0 { 44.0 } else { width * 0.5 + 45.0 }
     } else {
         start + 90.0
     };
-    ((x - text_start) / f64::from(DIFF_CHAR_WIDTH))
+    ((x - text_start) / DIFF_CHAR_WIDTH)
         .floor()
         .max(0.0)
         .to_usize()
@@ -3357,166 +3587,149 @@ fn diff_render_status(state: &AppState) -> (bool, &'static str) {
     }
 }
 
-fn diff_content_width(state: &AppState, viewport_width: f32) -> f64 {
-    let minimum = f64::from(viewport_width.max(320.0));
-    let Some(diff) = &state.diff else {
+/// Content width of the split diff panes. Split mode always clamps the code
+/// canvas to the viewport (two 50% panes clipped per side), so this never
+/// depends on the row text.
+fn diff_split_width(viewport_width: f32) -> f64 {
+    f64::from(viewport_width.max(320.0))
+}
+
+fn diff_content_width(state: &AppState, viewport_width: f32, max_columns: usize) -> f64 {
+    let minimum = diff_split_width(viewport_width);
+    if state.diff.is_none() || (state.diff_split && !state.diff_file_view) {
         return minimum;
-    };
-    if state.diff_split && !state.diff_file_view {
-        // Split mode divides the viewport: two 50% panes with the divider at
-        // the center and code clipped per pane, matching the previous UI.
-        return minimum;
     }
-    let columns = if state.diff_file_view {
-        diff.content.as_deref().map_or(0, |content| {
-            content
-                .lines()
-                .map(|line| line.chars().count())
-                .max()
-                .unwrap_or(0)
-        })
-    } else {
-        diff.rows
-            .iter()
-            .map(|row| {
-                row.old_text
-                    .chars()
-                    .count()
-                    .max(row.new_text.chars().count())
-            })
-            .max()
-            .unwrap_or(0)
-    }
-    .to_f64()
-    .unwrap_or(0.0);
-    minimum.max(columns * DIFF_CHAR_WIDTH + 100.0)
+    minimum.max(max_columns.to_f64().unwrap_or(0.0) * DIFF_CHAR_WIDTH + 100.0)
 }
 
-fn diff_rows(state: &AppState) -> Vec<DiffRowsItem> {
-    let (renderable, _) = diff_render_status(state);
-    if !renderable {
-        return Vec::new();
-    }
-    let Some(diff) = &state.diff else {
-        return Vec::new();
-    };
-    let total = if state.diff_file_view {
-        diff.content
-            .as_deref()
-            .map_or(0, |content| content.lines().count())
-    } else {
-        diff.rows.len()
-    };
-    let (styled_start, styled_end) = diff_styled_window(state, total);
-    if state.diff_file_view {
-        return diff.content.as_deref().map_or_else(Vec::new, |content| {
-            content
-                .lines()
-                .enumerate()
-                .map(|(index, line)| DiffRowsItem {
-                    key: Some(format!("diff:file:{}:{index}", diff.path.display())),
-                    old_no: String::new(),
-                    new_no: index.saturating_add(1).to_string(),
-                    hunk_text: String::new(),
-                    prefix: String::new(),
-                    prefix_tone: MUTED,
-                    old_tone: DIM,
-                    new_tone: DIM,
-                    old_bg: TRANSPARENT,
-                    new_bg: TRANSPARENT,
-                    unified_bg: if index % 2 == 0 {
-                        TRANSPARENT
-                    } else {
-                        FILE_ROW_ALT
-                    },
-                    old_empty: false,
-                    new_empty: false,
-                    split: false,
-                    hunk: false,
-                    selected: false,
-                    old_runs: Vec::new(),
-                    new_runs: Vec::new(),
-                    unified_runs: syntax_runs(
-                        &diff.path,
-                        line,
-                        index >= styled_start && index < styled_end,
-                    ),
-                    old_marks: Vec::new(),
-                    new_marks: Vec::new(),
-                    unified_marks: Vec::new(),
-                    interactive: false,
-                })
-                .collect()
-        });
-    }
-
-    let search_results = state.diff_search_results();
-    diff.rows
-        .iter()
-        .enumerate()
-        .map(|(index, row)| {
-            diff_row_item(
-                state,
-                diff.path.as_path(),
-                index,
-                row,
-                index >= styled_start && index < styled_end,
-                &search_results,
-            )
-        })
-        .collect()
-}
-
-fn diff_map_rows(state: &AppState, viewport_height: f32) -> Vec<DiffMapItem> {
-    if state.diff_file_view {
-        return Vec::new();
-    }
-    let Some(diff) = &state.diff else {
-        return Vec::new();
-    };
-    let total = diff.rows.len();
-    if total == 0 {
-        return Vec::new();
-    }
-    let search_height = if state.focus == FocusField::DiffSearch {
-        38.0
-    } else {
-        0.0
-    };
-    let map_height = (viewport_height - 78.0 - 24.0 - search_height).max(1.0);
-    let extent = f64::from(map_height) / total.to_f64().unwrap_or(1.0);
-    let current_hunk = diff.hunks.get(state.current_hunk).copied();
-    diff.rows
-        .iter()
-        .enumerate()
-        .map(|(index, row)| DiffMapItem {
-            key: Some(format!("diff-map:{index}")),
-            tone: match row.kind {
-                DiffRowKind::Context => rgba(48, 48, 48, 255),
-                DiffRowKind::Changed => ORANGE_SOFT,
-                DiffRowKind::Added => GREEN_SOFT,
-                DiffRowKind::Deleted => RED_SOFT,
-                DiffRowKind::Hunk => PURPLE_SOFT,
-            },
-            extent,
-            current: state.diff_selected_rows.contains(&index) || current_hunk == Some(index),
-        })
-        .collect()
-}
-
-fn diff_styled_window(state: &AppState, total: usize) -> (usize, usize) {
-    const OVERSCAN: usize = 12;
-    let first = (state.diff_scroll.max(0.0) / 20.0)
+/// Block-snapped half-open row window for the scrolled diff viewport.
+///
+/// Snapping to block boundaries makes ordinary scrolling free — the pushed
+/// window only changes when the viewport crosses a block — and the flanking
+/// blocks double as overscan so pointer hits always land on pushed rows.
+fn diff_window(scroll: f64, viewport_height: f32, total: usize) -> (usize, usize) {
+    const BLOCK: usize = 32;
+    let row_height = f64::from(layout::DIFF_ROW_HEIGHT);
+    let first = (scroll.max(0.0) / row_height)
+        .floor()
         .to_usize()
-        .unwrap_or(usize::MAX)
+        .unwrap_or(0);
+    let visible = (f64::from(viewport_height.max(0.0)) / row_height)
+        .ceil()
+        .to_usize()
+        .unwrap_or(0)
+        .saturating_add(1);
+    let start = (first.saturating_sub(BLOCK) / BLOCK * BLOCK).min(total);
+    let end = first
+        .saturating_add(visible)
+        .saturating_add(BLOCK)
+        .div_ceil(BLOCK)
+        .saturating_mul(BLOCK)
         .min(total);
-    let visible = usize::try_from(state.height)
-        .unwrap_or(usize::MAX)
-        .checked_div(20)
-        .unwrap_or(usize::MAX)
-        .saturating_add(OVERSCAN * 2);
-    let start = first.saturating_sub(OVERSCAN);
-    (start, start.saturating_add(visible).min(total))
+    (start, end)
+}
+
+/// Builds one file-view row from a single content line.
+fn file_view_row(
+    runs: &mut HashMap<(usize, u8), Vec<DiffRowsOldRunsItem>>,
+    path: &Path,
+    index: usize,
+    line: &str,
+) -> DiffRowsItem {
+    DiffRowsItem {
+        key: Some(format!("diff:file:{}:{index}", path.display())),
+        old_no: String::new(),
+        new_no: index.saturating_add(1).to_string(),
+        hunk_text: String::new(),
+        prefix: String::new(),
+        prefix_tone: MUTED,
+        old_tone: DIM,
+        new_tone: DIM,
+        old_bg: TRANSPARENT,
+        new_bg: TRANSPARENT,
+        unified_bg: if index.is_multiple_of(2) {
+            TRANSPARENT
+        } else {
+            FILE_ROW_ALT
+        },
+        old_empty: false,
+        new_empty: false,
+        split: false,
+        hunk: false,
+        selected: false,
+        old_runs: Vec::new(),
+        new_runs: Vec::new(),
+        unified_runs: cached_runs(runs, path, index, RUN_SLOT_UNIFIED, line),
+        old_marks: Vec::new(),
+        new_marks: Vec::new(),
+        unified_marks: Vec::new(),
+        interactive: false,
+    }
+}
+
+/// Bucketizes diff rows into at most one minimap band per pixel row, so the
+/// minimap costs O(map height) instead of O(rows) to lay out and paint.
+fn diff_map_rows(
+    diff: &DiffDocument,
+    key: &DiffMapKey,
+    map_height: f32,
+) -> Vec<DiffMapItem> {
+    let total = diff.rows.len();
+    let buckets = total
+        .min(map_height.floor().to_usize().unwrap_or(1))
+        .max(1);
+    let extent = f64::from(map_height) / buckets.to_f64().unwrap_or(1.0);
+    let mut selected = key.selected.iter().copied().peekable();
+    (0..buckets)
+        .map(|bucket| {
+            let start = bucket * total / buckets;
+            let end = ((bucket + 1) * total / buckets)
+                .max(start.saturating_add(1))
+                .min(total);
+            // The strongest change in the bucket wins its pixel band.
+            let tone = diff.rows[start..end]
+                .iter()
+                .map(|row| match row.kind {
+                    DiffRowKind::Changed => (4_u8, ORANGE_SOFT),
+                    DiffRowKind::Deleted => (3, RED_SOFT),
+                    DiffRowKind::Added => (2, GREEN_SOFT),
+                    DiffRowKind::Hunk => (1, PURPLE_SOFT),
+                    DiffRowKind::Context => (0, rgba(48, 48, 48, 255)),
+                })
+                .max_by_key(|(rank, _)| *rank)
+                .map_or(TRANSPARENT, |(_, tone)| tone);
+            while selected.peek().is_some_and(|&row| row < start) {
+                selected.next();
+            }
+            let current = key.hunk_row.is_some_and(|row| (start..end).contains(&row))
+                || selected.peek().is_some_and(|&row| row < end);
+            DiffMapItem {
+                key: Some(format!("diff-map:{start}")),
+                tone,
+                extent,
+                current,
+            }
+        })
+        .collect()
+}
+
+/// Pane slots for the per-row highlighted-run cache.
+const RUN_SLOT_OLD: u8 = 0;
+const RUN_SLOT_NEW: u8 = 1;
+const RUN_SLOT_UNIFIED: u8 = 2;
+
+/// Returns the highlighted spans for one pane of a row, computing and
+/// memoizing them on first use; the cache lives as long as the document.
+fn cached_runs(
+    runs: &mut HashMap<(usize, u8), Vec<DiffRowsOldRunsItem>>,
+    path: &Path,
+    index: usize,
+    slot: u8,
+    text: &str,
+) -> Vec<DiffRowsOldRunsItem> {
+    runs.entry((index, slot))
+        .or_insert_with(|| syntax_runs(path, text))
+        .clone()
 }
 
 fn diff_row_item(
@@ -3524,7 +3737,7 @@ fn diff_row_item(
     path: &Path,
     index: usize,
     row: &DiffRow,
-    styled: bool,
+    runs: &mut HashMap<(usize, u8), Vec<DiffRowsOldRunsItem>>,
     search_results: &[(usize, u8, usize, usize)],
 ) -> DiffRowsItem {
     if row.kind == DiffRowKind::Hunk {
@@ -3569,8 +3782,8 @@ fn diff_row_item(
     let mut new_marks = Vec::new();
     let mut unified_marks = Vec::new();
     if state.diff_split {
-        old_runs = syntax_runs(path, &row.old_text, styled);
-        new_runs = syntax_runs(path, &row.new_text, styled);
+        old_runs = cached_runs(runs, path, index, RUN_SLOT_OLD, &row.old_text);
+        new_runs = cached_runs(runs, path, index, RUN_SLOT_NEW, &row.new_text);
         old_marks = diff_marks(
             state,
             index,
@@ -3598,7 +3811,8 @@ fn diff_row_item(
             }
             DiffRowKind::Hunk => unreachable!("hunk rows return above"),
         };
-        unified_runs = syntax_runs(path, text, styled);
+        let slot = if side == 0 { RUN_SLOT_OLD } else { RUN_SLOT_NEW };
+        unified_runs = cached_runs(runs, path, index, slot, text);
         unified_marks = diff_marks(state, index, side, text, intraline, tone, search_results);
     }
     DiffRowsItem {
@@ -3634,16 +3848,16 @@ fn diff_row_item(
     }
 }
 
-fn syntax_runs(path: &Path, line: &str, highlighted: bool) -> Vec<DiffRowsOldRunsItem> {
-    if !highlighted || line.is_empty() {
-        return vec![DiffRowsOldRunsItem {
-            key: Some("syntax:plain".to_owned()),
-            content: line.to_owned(),
-            tone: if line.is_empty() { TEXT } else { MUTED },
-        }];
-    }
+fn syntax_runs(path: &Path, line: &str) -> Vec<DiffRowsOldRunsItem> {
     static SYNTAXES: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
     static THEMES: LazyLock<ThemeSet> = LazyLock::new(ThemeSet::load_defaults);
+    if line.is_empty() {
+        return vec![DiffRowsOldRunsItem {
+            key: Some("syntax:plain".to_owned()),
+            content: String::new(),
+            tone: TEXT,
+        }];
+    }
     let extension = path
         .extension()
         .and_then(|extension| extension.to_str())

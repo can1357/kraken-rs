@@ -211,6 +211,9 @@ pub(crate) enum ScreenshotView {
     Tabs,
 }
 
+/// One end of a diff text selection: (row, side, column).
+pub(crate) type DiffTextPoint = (usize, u8, usize);
+
 /// Mutable UI and repository state shared by windowed and offscreen render paths.
 pub(crate) struct AppState {
     pub(crate) width: u32,
@@ -259,6 +262,7 @@ pub(crate) struct AppState {
     pub(crate) modifier_primary: bool,
     pub(crate) selected_file: Option<DiffRequest>,
     pub(crate) diff: Option<DiffDocument>,
+    diff_revision: u64,
     pub(crate) palette: Option<crate::app::palette::PaletteState>,
     pub(crate) selected_working_files: HashSet<PathBuf>,
     pub(crate) collapsed_sections: HashSet<String>,
@@ -290,9 +294,9 @@ pub(crate) struct AppState {
     pub(crate) file_history: bool,
     pub(crate) diff_selected_rows: HashSet<usize>,
     pub(crate) diff_drag_start: Option<usize>,
-    pub(crate) diff_text_selection: Option<((usize, u8, usize), (usize, u8, usize))>,
-    diff_text_drag: Option<(usize, u8, usize)>,
-    diff_last_click: Option<((usize, u8, usize), Instant, u8)>,
+    pub(crate) diff_text_selection: Option<(DiffTextPoint, DiffTextPoint)>,
+    diff_text_drag: Option<DiffTextPoint>,
+    diff_last_click: Option<(DiffTextPoint, Instant, u8)>,
     last_ref_click: Option<(String, Instant)>,
     push_after_commit: bool,
     pub(crate) current_hunk: usize,
@@ -432,7 +436,7 @@ impl AppState {
                         scope: DiffScope::Commit(id),
                     }
                 };
-                state.diff = Some(backend.diff(&request)?);
+                state.install_diff(backend.diff(&request)?);
                 state.selected_file = Some(request);
                 state.main_view = MainView::Diff;
             }
@@ -493,6 +497,7 @@ impl AppState {
             diff: None,
             palette: None,
             diff_search: TextField::default(),
+            diff_revision: 0,
             diff_search_cursor: 0,
             selected_working_files: HashSet::new(),
             collapsed_sections: HashSet::new(),
@@ -882,6 +887,10 @@ impl AppState {
                 self.toast = Some("Repository cloned".to_owned());
                 self.open_repository(path);
             }
+            Ok(GitPayload::Created(path)) => {
+                self.toast = Some("Repository created".to_owned());
+                self.open_repository(path);
+            }
             Ok(GitPayload::Detail(detail)) => {
                 let detail = Arc::new(detail);
                 self.cache_detail(&detail);
@@ -925,7 +934,7 @@ impl AppState {
                             self.diff_scroll_updated = None;
                         }
                     }
-                    self.diff = Some(diff);
+                    self.install_diff(diff);
                 }
             }
             Ok(GitPayload::Mutated {
@@ -988,7 +997,19 @@ impl AppState {
                 }
                 self.loading_history = false;
                 self.push_after_commit = false;
-                if self.settings.notify_operation_failure {
+                // A tab whose first snapshot failed has no repository to
+                // show; return it to the welcome surface instead of
+                // stranding an empty graph view on a bogus path.
+                if self.snapshot.is_none()
+                    && matches!(event.kind.as_ref(), Some(GitJobKind::LoadSnapshot { .. }))
+                {
+                    if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                        "New Tab".clone_into(&mut tab.title);
+                        tab.path = None;
+                    }
+                    self.show_welcome();
+                    self.toast = Some(error);
+                } else if self.settings.notify_operation_failure {
                     self.error = Some(error);
                 }
             }
@@ -998,6 +1019,17 @@ impl AppState {
     /// Returns the monotonic revision of repository data used by UI projections.
     pub(crate) fn snapshot_revision(&self) -> u64 {
         self.snapshot_revision
+    }
+
+    /// Returns the monotonic revision of the loaded diff document.
+    pub(crate) fn diff_revision(&self) -> u64 {
+        self.diff_revision
+    }
+
+    /// Installs a freshly loaded diff document and bumps its projection revision.
+    pub(crate) fn install_diff(&mut self, diff: DiffDocument) {
+        self.diff = Some(diff);
+        self.diff_revision = self.diff_revision.wrapping_add(1);
     }
 
     fn apply_snapshot(&mut self, snapshot: RepoSnapshot) {
@@ -2131,28 +2163,15 @@ impl AppState {
             UiAction::OpenRepository(path) => self.open_repository(path),
             UiAction::OpenRepositoryPicker => {
                 if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                    if GitBackend::discover(&path).is_ok() {
-                        self.open_repository(path);
-                    } else {
-                        self.toast = Some("Selected folder is not a Git repository".to_owned());
-                    }
+                    // Validation happens off the event loop: the snapshot job
+                    // fails for non-repositories and the tab reverts to the
+                    // welcome surface.
+                    self.open_repository(path);
                 }
             }
             UiAction::CreateRepositoryPicker => {
                 if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                    match git2::Repository::init(&path).and_then(|repository| {
-                        let branch = self.settings.default_branch_name.trim();
-                        if branch.is_empty() {
-                            return Err(git2::Error::from_str(
-                                "default branch name cannot be empty",
-                            ));
-                        }
-                        repository.set_head(&format!("refs/heads/{branch}"))?;
-                        Ok(repository)
-                    }) {
-                        Ok(_) => self.open_repository(path),
-                        Err(error) => self.toast = Some(format!("Create repository: {error}")),
-                    }
+                    self.submit_init(path);
                 }
             }
             UiAction::ToggleCloneForm => {
@@ -3803,6 +3822,18 @@ impl AppState {
             settings: self.settings.clone(),
         });
     }
+
+    /// Initializes a repository off the event loop; the worker answers with
+    /// [`GitPayload::Created`] and the new repository is opened on arrival.
+    fn submit_init(&mut self, path: PathBuf) {
+        self.busy_jobs = self.busy_jobs.saturating_add(1);
+        self.git.submit(GitJob {
+            generation: self.generation,
+            path: path.clone(),
+            kind: GitJobKind::Init { path },
+            settings: self.settings.clone(),
+        });
+    }
 }
 
 fn head_target(snapshot: &RepoSnapshot) -> Option<String> {
@@ -4125,6 +4156,27 @@ mod tests {
                 })
             })
         });
+    }
+
+    #[test]
+    fn opening_a_non_repository_reverts_the_tab_to_welcome() {
+        let bogus = tempfile::tempdir().expect("temporary folder");
+        let settings_directory = tempfile::tempdir().expect("temporary settings directory");
+        let store = SettingsStore::at(settings_directory.path().join("settings.toml"));
+        let mut state = AppState::base(1_200, 800, store, Settings::default());
+        state.open_repository(bogus.path().to_path_buf());
+        wait_until(&mut state, |state| {
+            state.busy_jobs == 0 && state.repo_path.is_none()
+        });
+        assert!(state.snapshot.is_none());
+        assert!(state.tabs[state.active_tab].path.is_none());
+        assert!(
+            state
+                .toast
+                .as_deref()
+                .is_some_and(|toast| toast.contains("repository")),
+            "failure toast should name the repository problem"
+        );
     }
 
     #[test]

@@ -16,6 +16,7 @@ winit input ─► slab_kernel dispatch ─► UiAction (src/ui/slab.rs)
 
 - All UI interactions become `UiAction` variants; `AppState` is the single state root.
 - Repository work never runs on the event loop. `GitRunner` (`src/git/runner.rs`) owns a worker thread, opens a fresh repo handle per job, and versions results so stale responses cannot overwrite newer UI state. Same pattern for AI (`src/app/ai.rs`), avatars (`src/graph/avatars.rs`), and the PTY reader (`src/term/pty.rs`).
+- Snapshot reads are gitoxide-powered (`src/git/store.rs`): one reference pass, a commit-graph-accelerated `--date-order` walk, and a parallel status scan. The worker keeps a `RepoStore` per repository that caches parsed commits by oid and reuses the last walk while no reference moves; libgit2 remains for mutations, stashes, diffs, and the shallow-clone walk, the CLI for network/LFS/signing.
 - `slab_macro::include_doc!` in `src/ui/slab.rs` compiles `ui/app.slab` plus the two fonts in `assets/fonts/` into the typed `generated` module at macro expansion time; the font pairs keep glyph ids aligned with the faces `src/gpu/slab.rs` registers. There is no `build.rs`.
 
 ### Adding a feature
@@ -30,7 +31,7 @@ winit input ─► slab_kernel dispatch ─► UiAction (src/ui/slab.rs)
 | Path | Responsibility |
 |---|---|
 | `src/app/` | winit event loop, `AppState`, automation endpoint, AI worker, command palette, native menus |
-| `src/git/` | `libgit2` backend with CLI fallbacks, background worker, filesystem watching, domain models |
+| `src/git/` | gitoxide snapshot reads + per-repo cache (`store.rs`), `libgit2` mutations with CLI fallbacks, background worker, filesystem watching, domain models |
 | `src/graph/` | Topological commit-lane layout and avatar fetching/atlas |
 | `src/ui/` | Slab bridge, `UiAction`, layout math, menus, icons, geometry, text fields |
 | `src/gpu/` | Windowed and offscreen `wgpu` renderers |

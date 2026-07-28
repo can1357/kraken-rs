@@ -11,6 +11,7 @@ use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
 
 use crate::app::{LaunchOptions, ScreenshotView};
+use crate::git::backend::GitBackend;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum ScreenshotArg {
@@ -66,11 +67,7 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
     let requested = args.repo.or_else(|| std::env::current_dir().ok());
-    let repo = requested.and_then(|path| {
-        git2::Repository::discover(path)
-            .ok()
-            .and_then(|repository| repository.workdir().map(std::path::Path::to_path_buf))
-    });
+    let repo = requested.and_then(GitBackend::discover_worktree);
     let options = LaunchOptions {
         repo,
         screenshot: args.screenshot.map(Into::into),

@@ -14,6 +14,8 @@ params diff {
   show_labels bool = false
   empty_message text = "Loading file diff…"
   content_width num = 900
+  pad_top num = 0
+  pad_bottom num = 0
   rows list(DiffItem) = []
   map list(DiffMapItem) = []
 }
@@ -264,7 +266,9 @@ def DiffView() {
     when diff.has_rows {
       row w=fill h=fill {
         col#diff-scroll w=fill h=fill scroll=both scrollbar=always scrollbar-w=6 scrollbar-fg=color.borderHard scrollbar-bg=color.panelAlt clip {
-          each param.diff.rows #diff-rows virtual item-extent=20 overscan=10
+          rect w=1 h=param.diff.pad_top inert
+          each param.diff.rows #diff-rows
+          rect w=1 h=param.diff.pad_bottom inert
         }
         when !diff.file_view {
           col#diff-minimap w=20 h=fill bg=color.panelAlt clip {

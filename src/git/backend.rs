@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    hash::{Hash, Hasher},
     path::{Path, PathBuf},
     process::Command,
 };
@@ -9,25 +8,23 @@ use anyhow::{Context, Result, anyhow, bail};
 use git2::{
     BranchType, Cred, Delta, Diff, DiffFindOptions, DiffOptions, IndexAddOption, MergeAnalysis,
     ObjectType, Oid, PushOptions, RemoteCallbacks, Repository, RepositoryState, Signature, Sort,
-    StashFlags, Status, StatusOptions, TreeWalkMode, TreeWalkResult, build::CheckoutBuilder,
+    StashFlags, TreeWalkMode, TreeWalkResult, build::CheckoutBuilder,
 };
 use similar::{DiffTag, TextDiff};
 
 use crate::git::models::{
     BranchInfo, ChangeKind, CommitBranchRef, CommitDetail, CommitInput, CommitSummary,
     DiffDocument, DiffLineSelection, DiffRequest, DiffRow, DiffRowKind, DiffScope, FileChange,
-    PullOperation, RangeDetail, RefKind, RefLabel, RepoSnapshot, StashInfo, WorkingFile,
-    WorkingTree, WorktreeInfo,
+    PullOperation, RangeDetail, RefKind, RefLabel, RepoSnapshot, StashInfo, WorkingTree,
+    WorktreeInfo,
 };
+use crate::git::store::{self, RefsSnapshot, RepoStore};
 use crate::settings::Settings;
 
 /// Blocking repository contract executed exclusively by the Git worker or CLI verifier.
 pub(crate) trait Backend {
     /// Captures branches, refs, status, and a bounded topological history.
     fn snapshot(&self, limit: usize) -> Result<RepoSnapshot>;
-    /// Like [`Backend::snapshot`] but skips the worktree status scan; used to
-    /// page older history where the working tree cannot have changed.
-    fn history(&self, limit: usize) -> Result<RepoSnapshot>;
     /// Loads metadata and changed paths for one commit. `include_tree` also
     /// collects every path in the commit tree for the "view all files" mode.
     fn commit_detail(&self, id: &str, include_tree: bool) -> Result<CommitDetail>;
@@ -154,27 +151,56 @@ impl GitBackend {
         Ok(Self { path, settings })
     }
 
+    /// Resolves the worktree root containing `path`; `None` when no
+    /// repository is found or it is bare. CLI startup uses this to validate
+    /// the requested repository before the app launches.
+    pub(crate) fn discover_worktree(path: impl AsRef<Path>) -> Option<PathBuf> {
+        Repository::discover(path.as_ref())
+            .ok()
+            .and_then(|repository| repository.workdir().map(Path::to_path_buf))
+    }
+
+    /// Creates an empty repository at `path` with HEAD on `branch`; backs the
+    /// welcome screen's create flow.
+    pub(crate) fn init_repository(path: &Path, branch: &str) -> Result<()> {
+        let branch = branch.trim();
+        if branch.is_empty() {
+            bail!("default branch name cannot be empty");
+        }
+        let repository = Repository::init(path)
+            .with_context(|| format!("initialize repository at {}", path.display()))?;
+        repository
+            .set_head(&format!("refs/heads/{branch}"))
+            .with_context(|| format!("point HEAD at branch {branch}"))
+    }
+
+    /// Clones `url` into `target`; runs before any repository exists, so it
+    /// is the one Git operation not tied to a discovered backend.
+    pub(crate) fn clone_repository(url: &str, target: &Path) -> Result<()> {
+        Repository::clone(url, target).with_context(|| format!("clone {url}"))?;
+        Ok(())
+    }
+
     /// Returns the canonical worktree path used by worker jobs.
     pub(crate) fn path(&self) -> &Path {
         &self.path
     }
 
-    fn run_git(&self, arguments: &[&str]) -> Result<()> {
-        let program = if self.settings.use_git_executable {
+    /// The Git CLI binary honoring the user's executable preference.
+    fn git_program(&self) -> &str {
+        if self.settings.use_git_executable {
             self.settings.git_executable.trim()
         } else {
             "git"
-        };
-        run_git_program(program, &self.path, arguments)
+        }
+    }
+
+    fn run_git(&self, arguments: &[&str]) -> Result<()> {
+        run_git_program(self.git_program(), &self.path, arguments)
     }
 
     fn run_git_capture(&self, arguments: &[&str]) -> Result<Vec<u8>> {
-        let program = if self.settings.use_git_executable {
-            self.settings.git_executable.trim()
-        } else {
-            "git"
-        };
-        run_git_program_output(program, &self.path, arguments)
+        run_git_program_output(self.git_program(), &self.path, arguments)
     }
 
     fn open(&self) -> Result<Repository> {
@@ -191,11 +217,7 @@ impl GitBackend {
             .arg("--version")
             .output()
             .with_context(|| format!("run GPG program {program}"))?;
-        let mut command = Command::new(if self.settings.use_git_executable {
-            self.settings.git_executable.trim()
-        } else {
-            "git"
-        });
+        let mut command = Command::new(self.git_program());
         command
             .current_dir(&self.path)
             .arg("-c")
@@ -246,7 +268,7 @@ impl GitBackend {
     /// Reads only the combined index/worktree status; the watcher uses this to
     /// avoid full snapshots when no reference moved.
     pub(crate) fn working_status(&self) -> Result<WorkingTree> {
-        read_status(&self.open()?)
+        store::read_status(&self.path)
     }
 
     /// Order-independent digest of every reference name and target plus HEAD.
@@ -254,35 +276,47 @@ impl GitBackend {
     /// Two equal signatures mean no branch, tag, or HEAD motion happened, so a
     /// filesystem-watcher refresh can skip re-walking history entirely.
     pub(crate) fn refs_signature(&self) -> Result<u64> {
-        Ok(refs_signature_of(&self.open()?))
+        store::refs_signature(&self.path)
     }
 
-    fn snapshot_inner(&self, limit: usize, include_status: bool) -> Result<RepoSnapshot> {
+    fn snapshot_inner(
+        &self,
+        store: &mut RepoStore,
+        limit: usize,
+        include_status: bool,
+    ) -> Result<RepoSnapshot> {
         // The status scan is the dominant cost on large worktrees and touches
         // only the index/workdir, so it runs on its own repository handle in
-        // parallel with reference enumeration and the commit walk.
+        // parallel with the reference pass and the commit walk.
         std::thread::scope(|scope| {
             let status = include_status
-                .then(|| scope.spawn(|| -> Result<WorkingTree> { read_status(&self.open()?) }));
+                .then(|| scope.spawn(|| -> Result<WorkingTree> { store::read_status(&self.path) }));
             let mut repository = self.open()?;
-            let refs_sig = refs_signature_of(&repository);
-            let head = head_name(&repository);
-            let head_id = repository
-                .head()
-                .ok()
-                .and_then(|reference| reference.peel_to_commit().ok())
-                .map(|commit| commit.id().to_string());
-            let branches = read_branches(&repository)?;
+            let gix_repo = store.open()?;
+            let refs = store.read_refs(&gix_repo)?;
             let worktrees = read_worktrees(&repository)?;
-            let ref_index = read_labels(&repository, &branches, &worktrees, head_id.as_deref())?;
+            let ref_index = read_labels(&refs, &worktrees);
             let stashes = read_stashes(&mut repository)?;
-            let (commits, has_more) = read_commits(
-                &repository,
-                limit.max(1),
-                &branches,
-                &ref_index.by_commit,
-                &ref_index.branch_refs_by_commit,
-            )?;
+            // gitoxide's topological walk cannot graft shallow boundaries, so
+            // shallow clones keep the libgit2 walk; their truncated history
+            // keeps it cheap.
+            let (commits, has_more) = if repository.is_shallow() {
+                read_commits(
+                    &repository,
+                    limit.max(1),
+                    &refs.branches,
+                    &ref_index.by_commit,
+                    &ref_index.branch_refs_by_commit,
+                )?
+            } else {
+                store.history(
+                    &gix_repo,
+                    &refs,
+                    &ref_index.by_commit,
+                    &ref_index.branch_refs_by_commit,
+                    limit.max(1),
+                )?
+            };
             let working = status
                 .map(|handle| {
                     handle
@@ -300,9 +334,9 @@ impl GitBackend {
             Ok(RepoSnapshot {
                 path: self.path.clone(),
                 name,
-                head,
-                head_id,
-                branches,
+                head: refs.head,
+                head_id: refs.head_id,
+                branches: refs.branches,
                 tags: ref_index.tags,
                 stashes,
                 worktrees,
@@ -310,19 +344,35 @@ impl GitBackend {
                 working,
                 loaded_limit: limit,
                 has_more,
-                refs_sig,
+                refs_sig: refs.sig,
             })
         })
+    }
+
+    /// Snapshot backed by the worker's persistent per-repository cache; also
+    /// schedules one-time commit-graph maintenance for fast future walks.
+    pub(crate) fn snapshot_cached(
+        &self,
+        store: &mut RepoStore,
+        limit: usize,
+    ) -> Result<RepoSnapshot> {
+        store.spawn_commit_graph_maintenance(self.git_program());
+        self.snapshot_inner(store, limit, true)
+    }
+
+    /// History page backed by the persistent cache; skips the status scan.
+    pub(crate) fn history_cached(
+        &self,
+        store: &mut RepoStore,
+        limit: usize,
+    ) -> Result<RepoSnapshot> {
+        self.snapshot_inner(store, limit, false)
     }
 }
 
 impl Backend for GitBackend {
     fn snapshot(&self, limit: usize) -> Result<RepoSnapshot> {
-        self.snapshot_inner(limit, true)
-    }
-
-    fn history(&self, limit: usize) -> Result<RepoSnapshot> {
-        self.snapshot_inner(limit, false)
+        self.snapshot_inner(&mut RepoStore::new(self.path.clone()), limit, true)
     }
 
     fn commit_detail(&self, id: &str, include_tree: bool) -> Result<CommitDetail> {
@@ -936,11 +986,7 @@ impl Backend for GitBackend {
                 .arg("--version")
                 .output()
                 .with_context(|| format!("run GPG program {program}"))?;
-            let mut command = Command::new(if self.settings.use_git_executable {
-                self.settings.git_executable.trim()
-            } else {
-                "git"
-            });
+            let mut command = Command::new(self.git_program());
             command
                 .current_dir(&self.path)
                 .arg("-c")
@@ -1089,11 +1135,7 @@ impl Backend for GitBackend {
             LfsOperation::Push => &["lfs", "push", "--all", "origin"],
             LfsOperation::Prune => &["lfs", "prune"],
         };
-        let program = if self.settings.use_git_executable {
-            self.settings.git_executable.trim()
-        } else {
-            "git"
-        };
+        let program = self.git_program();
         let output = Command::new(program)
             .args(arguments)
             .current_dir(&self.path)
@@ -1428,38 +1470,6 @@ fn write_index_content(
     index.write().context("write selected-line index")
 }
 
-/// Order-independent digest of all reference names/targets plus HEAD; equal
-/// digests mean no branch, tag, or HEAD moved between two repository reads.
-fn refs_signature_of(repository: &Repository) -> u64 {
-    let mut digest = 0u64;
-    if let Ok(references) = repository.references() {
-        for reference in references.flatten() {
-            let mut hasher = std::hash::DefaultHasher::new();
-            reference.name_bytes().hash(&mut hasher);
-            reference.target().hash(&mut hasher);
-            reference.symbolic_target_bytes().hash(&mut hasher);
-            // XOR keeps the digest independent of enumeration order.
-            digest ^= hasher.finish();
-        }
-    }
-    let mut hasher = std::hash::DefaultHasher::new();
-    head_name(repository).hash(&mut hasher);
-    repository
-        .head()
-        .ok()
-        .and_then(|head| head.target())
-        .hash(&mut hasher);
-    digest ^ hasher.finish()
-}
-
-fn head_name(repository: &Repository) -> String {
-    repository
-        .head()
-        .ok()
-        .and_then(|head| head.shorthand().map(str::to_owned))
-        .unwrap_or_else(|| "HEAD".to_owned())
-}
-
 fn current_branch(repository: &Repository) -> Result<String> {
     let head = repository.head().context("read HEAD")?;
     if !head.is_branch() {
@@ -1470,67 +1480,16 @@ fn current_branch(repository: &Repository) -> Result<String> {
         .ok_or_else(|| anyhow!("current branch name is not UTF-8"))
 }
 
-fn read_branches(repository: &Repository) -> Result<Vec<BranchInfo>> {
-    let mut branches = Vec::new();
-    for branch_type in [BranchType::Local, BranchType::Remote] {
-        for result in repository
-            .branches(Some(branch_type))
-            .context("enumerate branches")?
-        {
-            let (branch, kind) = result.context("read branch")?;
-            let Some(name) = branch.name().context("read branch name")? else {
-                continue;
-            };
-            let target = branch
-                .get()
-                .peel_to_commit()
-                .map(|commit| commit.id().to_string())
-                .unwrap_or_default();
-            let upstream = if kind == BranchType::Local {
-                branch
-                    .upstream()
-                    .ok()
-                    .and_then(|upstream| upstream.name().ok().flatten().map(str::to_owned))
-            } else {
-                None
-            };
-            branches.push(BranchInfo {
-                name: name.to_owned(),
-                target,
-                current: branch.is_head(),
-                remote: kind == BranchType::Remote,
-                upstream,
-            });
-        }
-    }
-    sort_branches(&mut branches);
-    Ok(branches)
-}
-
-fn sort_branches(branches: &mut [BranchInfo]) {
-    branches.sort_by(|left, right| {
-        left.name
-            .to_lowercase()
-            .cmp(&right.name.to_lowercase())
-            .then_with(|| left.name.cmp(&right.name))
-    });
-}
-
 struct RefIndex {
     by_commit: HashMap<String, Vec<RefLabel>>,
     branch_refs_by_commit: HashMap<String, Vec<CommitBranchRef>>,
     tags: Vec<RefLabel>,
 }
 
-fn read_labels(
-    repository: &Repository,
-    branches: &[BranchInfo],
-    worktrees: &[WorktreeInfo],
-    head_id: Option<&str>,
-) -> Result<RefIndex> {
+fn read_labels(refs: &RefsSnapshot, worktrees: &[WorktreeInfo]) -> RefIndex {
     let mut by_commit: HashMap<String, Vec<RefLabel>> = HashMap::new();
     let mut branch_refs: HashMap<String, BTreeMap<String, CommitBranchRef>> = HashMap::new();
-    for branch in branches {
+    for branch in &refs.branches {
         if branch.target.is_empty() {
             continue;
         }
@@ -1583,7 +1542,7 @@ fn read_labels(
             });
         }
     }
-    if let Some(id) = head_id {
+    if let Some(id) = refs.head_id.as_deref() {
         by_commit.entry(id.to_owned()).or_default().insert(
             0,
             RefLabel {
@@ -1593,33 +1552,21 @@ fn read_labels(
         );
     }
     let mut tags = Vec::new();
-    for name in repository
-        .tag_names(None)
-        .context("enumerate tags")?
-        .iter()
-        .flatten()
-    {
-        let Ok(object) = repository.revparse_single(&format!("refs/tags/{name}")) else {
-            continue;
-        };
-        let Ok(commit) = object.peel_to_commit() else {
-            continue;
-        };
-        let commit_id = commit.id().to_string();
+    for tag in &refs.tags {
         let label = RefLabel {
-            name: name.to_owned(),
+            name: tag.name.clone(),
             kind: RefKind::Tag,
         };
         by_commit
-            .entry(commit_id.clone())
+            .entry(tag.target.clone())
             .or_default()
             .push(label.clone());
         branch_refs
-            .entry(commit_id)
+            .entry(tag.target.clone())
             .or_default()
-            .entry(name.to_owned())
+            .entry(tag.name.clone())
             .or_insert_with(|| CommitBranchRef {
-                branch_short_name: name.to_owned(),
+                branch_short_name: tag.name.clone(),
                 is_local: false,
                 remote_names: Vec::new(),
                 is_head: false,
@@ -1632,11 +1579,11 @@ fn read_labels(
         .map(|(commit, refs)| (commit, refs.into_values().collect()))
         .collect();
     tags.sort_by(|left, right| right.name.cmp(&left.name));
-    Ok(RefIndex {
+    RefIndex {
         by_commit,
         branch_refs_by_commit,
         tags,
-    })
+    }
 }
 
 fn read_stashes(repository: &mut Repository) -> Result<Vec<StashInfo>> {
@@ -1676,7 +1623,7 @@ fn read_worktrees(repository: &Repository) -> Result<Vec<WorktreeInfo>> {
                 .ok()
                 .and_then(|head| head.peel_to_commit().ok())
                 .map(|commit| commit.id().to_string());
-            let changes = read_status(&repo).map_or(0, |working| working.files.len());
+            let changes = store::read_status(&path).map_or(0, |working| working.files.len());
             (branch, target, changes)
         });
         worktrees.push(WorktreeInfo {
@@ -1688,62 +1635,6 @@ fn read_worktrees(repository: &Repository) -> Result<Vec<WorktreeInfo>> {
         });
     }
     Ok(worktrees)
-}
-
-fn read_status(repository: &Repository) -> Result<WorkingTree> {
-    let mut options = worktree_status_options();
-    let statuses = repository
-        .statuses(Some(&mut options))
-        .context("read worktree status")?;
-    let mut files = BTreeMap::<PathBuf, WorkingFile>::new();
-    for entry in statuses.iter() {
-        let path = entry
-            .index_to_workdir()
-            .and_then(|delta| delta.new_file().path().map(Path::to_path_buf))
-            .or_else(|| {
-                entry
-                    .head_to_index()
-                    .and_then(|delta| delta.new_file().path().map(Path::to_path_buf))
-            })
-            .or_else(|| entry.path().map(PathBuf::from));
-        let Some(path) = path else {
-            continue;
-        };
-        let status = entry.status();
-        let file = files.entry(path.clone()).or_insert(WorkingFile {
-            path,
-            old_path: None,
-            staged: None,
-            unstaged: None,
-        });
-        file.staged = index_change(status).or(file.staged);
-        file.unstaged = worktree_change(status).or(file.unstaged);
-        let old_path = entry
-            .index_to_workdir()
-            .or_else(|| entry.head_to_index())
-            .and_then(|delta| {
-                let old = delta.old_file().path()?;
-                let new = delta.new_file().path()?;
-                (old != new && new == file.path).then(|| old.to_path_buf())
-            });
-        file.old_path = old_path.or_else(|| file.old_path.clone());
-    }
-    apply_renames(&mut files, rename_pairs(repository, true)?, true);
-    apply_renames(&mut files, rename_pairs(repository, false)?, false);
-    Ok(WorkingTree {
-        files: files.into_values().collect(),
-    })
-}
-
-fn worktree_status_options() -> StatusOptions {
-    let mut options = StatusOptions::new();
-    options
-        .include_untracked(true)
-        .recurse_untracked_dirs(true)
-        .renames_head_to_index(true)
-        .renames_index_to_workdir(true)
-        .include_unmodified(false);
-    options
 }
 
 fn expanded_paths(
@@ -1802,78 +1693,9 @@ fn rename_pairs(repository: &Repository, staged: bool) -> Result<Vec<(PathBuf, P
         .collect())
 }
 
-fn apply_renames(
-    files: &mut BTreeMap<PathBuf, WorkingFile>,
-    renames: Vec<(PathBuf, PathBuf)>,
-    staged: bool,
-) {
-    for (old, new) in renames {
-        let old_file = files.remove(&old);
-        let new_file = files.remove(&new);
-        let staged_change = new_file
-            .as_ref()
-            .and_then(|file| file.staged)
-            .or_else(|| old_file.as_ref().and_then(|file| file.staged));
-        let unstaged_change = new_file
-            .as_ref()
-            .and_then(|file| file.unstaged)
-            .or_else(|| old_file.as_ref().and_then(|file| file.unstaged));
-        files.insert(
-            new.clone(),
-            WorkingFile {
-                path: new,
-                old_path: Some(old),
-                staged: if staged {
-                    Some(ChangeKind::Renamed)
-                } else {
-                    staged_change
-                },
-                unstaged: if staged {
-                    unstaged_change
-                } else {
-                    Some(ChangeKind::Renamed)
-                },
-            },
-        );
-    }
-}
-
-fn index_change(status: Status) -> Option<ChangeKind> {
-    if status.contains(Status::CONFLICTED) {
-        Some(ChangeKind::Conflicted)
-    } else if status.contains(Status::INDEX_NEW) {
-        Some(ChangeKind::Added)
-    } else if status.contains(Status::INDEX_MODIFIED) {
-        Some(ChangeKind::Modified)
-    } else if status.contains(Status::INDEX_DELETED) {
-        Some(ChangeKind::Deleted)
-    } else if status.contains(Status::INDEX_RENAMED) {
-        Some(ChangeKind::Renamed)
-    } else if status.contains(Status::INDEX_TYPECHANGE) {
-        Some(ChangeKind::TypeChanged)
-    } else {
-        None
-    }
-}
-
-fn worktree_change(status: Status) -> Option<ChangeKind> {
-    if status.contains(Status::CONFLICTED) {
-        Some(ChangeKind::Conflicted)
-    } else if status.contains(Status::WT_NEW) {
-        Some(ChangeKind::Added)
-    } else if status.contains(Status::WT_MODIFIED) {
-        Some(ChangeKind::Modified)
-    } else if status.contains(Status::WT_DELETED) {
-        Some(ChangeKind::Deleted)
-    } else if status.contains(Status::WT_RENAMED) {
-        Some(ChangeKind::Renamed)
-    } else if status.contains(Status::WT_TYPECHANGE) {
-        Some(ChangeKind::TypeChanged)
-    } else {
-        None
-    }
-}
-
+/// Shallow-clone fallback: gitoxide's topological walk cannot graft shallow
+/// boundaries, so these repositories keep libgit2's walker. Their truncated
+/// history bounds the presort cost.
 fn read_commits(
     repository: &Repository,
     limit: usize,
@@ -2711,41 +2533,6 @@ mod tests {
     }
 
     #[test]
-    fn branch_order_is_case_insensitive_and_independent_of_head() {
-        let mut branches = ["main", "feature/lane-3", "Feature/Detail", "feature/lane-1"]
-            .into_iter()
-            .map(|name| BranchInfo {
-                name: name.to_owned(),
-                target: String::new(),
-                current: name == "main",
-                remote: false,
-                upstream: None,
-            })
-            .collect::<Vec<_>>();
-
-        sort_branches(&mut branches);
-        assert_eq!(
-            branches
-                .iter()
-                .map(|branch| branch.name.as_str())
-                .collect::<Vec<_>>(),
-            ["Feature/Detail", "feature/lane-1", "feature/lane-3", "main"]
-        );
-
-        for branch in &mut branches {
-            branch.current = branch.name == "feature/lane-3";
-        }
-        sort_branches(&mut branches);
-        assert_eq!(
-            branches
-                .iter()
-                .map(|branch| branch.name.as_str())
-                .collect::<Vec<_>>(),
-            ["Feature/Detail", "feature/lane-1", "feature/lane-3", "main"]
-        );
-    }
-
-    #[test]
     fn snapshot_reads_real_history_refs_and_worktree_status() {
         let (directory, repository) = repository_with_commit();
         let commit = repository
@@ -2890,12 +2677,19 @@ mod tests {
         std::fs::write(directory.path().join("dirty.txt"), "dirty\n").expect("dirty worktree");
         let backend = GitBackend::discover(directory.path()).expect("discover repository");
 
-        let history = backend.history(50).expect("page history");
+        let mut store = RepoStore::new(backend.path().to_owned());
+        let history = backend
+            .history_cached(&mut store, 50)
+            .expect("page history");
         assert_eq!(history.commits.len(), 2);
         assert!(history.working.files.is_empty());
 
-        let snapshot = backend.snapshot(50).expect("full snapshot");
+        let snapshot = backend
+            .snapshot_cached(&mut store, 50)
+            .expect("full snapshot");
         assert_eq!(snapshot.refs_sig, history.refs_sig);
+        // References did not move, so the cached walk is reused verbatim.
+        assert_eq!(snapshot.commits, history.commits);
         assert!(!snapshot.working.files.is_empty());
     }
 
@@ -3037,6 +2831,25 @@ mod tests {
                 .subject,
             "fix(core): amended through backend"
         );
+    }
+
+    #[test]
+    fn init_repository_points_head_at_trimmed_default_branch() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        GitBackend::init_repository(directory.path(), " trunk ").expect("initialize repository");
+        let repository = Repository::open(directory.path()).expect("open initialized repository");
+        assert_eq!(
+            repository
+                .find_reference("HEAD")
+                .expect("read HEAD")
+                .symbolic_target(),
+            Some("refs/heads/trunk")
+        );
+
+        let other = tempfile::tempdir().expect("temp dir");
+        let error = GitBackend::init_repository(other.path(), "   ")
+            .expect_err("reject empty branch name");
+        assert!(error.to_string().contains("branch name"));
     }
 
     #[test]
