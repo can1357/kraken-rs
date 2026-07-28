@@ -5404,4 +5404,54 @@ mod tests {
             "release keeps the live extent"
         );
     }
+
+    #[test]
+    fn pane_divider_overlays_restore_after_sidebar_drag_and_window_growth() {
+        let mut state = workspace_state();
+        state.selected_commit = Some("deadbeef".to_owned());
+        state.sidebar_width = 500.0;
+        state.detail_width = 690.0;
+        let mut document = SlabDocument::new(generated::Doc::new());
+        let mut frame = slab_kernel::flatten::frame_new();
+        document.update_frame(&state, &mut frame);
+
+        // User's exact precondition: a real 1px sidebar divider drag leaves
+        // persistent overlays, then a later window resize must restore them.
+        let (x, y) = keyed_center(&state, &mut document, "#sidebar-split");
+        document.dispatch(&mut state, &pointer(E_POINTER_DOWN, x, y, 0));
+        document.dispatch(&mut state, &pointer(E_POINTER_MOVE, x + 1.0, y, 0));
+        document.dispatch(&mut state, &pointer(E_POINTER_UP, x + 1.0, y, 0));
+        document.update_frame(&state, &mut frame);
+
+        for (width, height) in [(960_u32, 700_u32), (1_600, 1_000)] {
+            state.resize(width, height);
+            let event = Event {
+                etype: slab_kernel::dispatch::E_RESIZE,
+                x: f64::from(state.mouse[0]),
+                y: f64::from(state.mouse[1]),
+                dx: f64::from(width),
+                dy: f64::from(height),
+                button: 0,
+                clicks: 0,
+                key: String::new(),
+                text: String::new(),
+                clauses: Vec::new(),
+                mods: 0,
+            };
+            document.dispatch(&mut state, &event);
+            document.update_frame(&state, &mut frame);
+        }
+
+        let restored_layout = layout::Layout::for_state(&state);
+        let sidebar_overlay = document.doc.get_divider("#sidebar-split");
+        let detail_overlay = document.doc.get_divider("#detail-split");
+        assert!(
+            (sidebar_overlay - f64::from(restored_layout.sidebar.width)).abs() < 0.01,
+            "sidebar overlay stayed clamped after growth: {sidebar_overlay}"
+        );
+        assert!(
+            (detail_overlay - f64::from(restored_layout.center.width)).abs() < 0.01,
+            "detail overlay stayed clamped after growth: {detail_overlay}"
+        );
+    }
 }

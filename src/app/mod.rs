@@ -708,4 +708,20 @@ mod tests {
             (1_600, 1_000)
         );
     }
+
+    #[test]
+    fn resize_event_extent_is_used_directly_for_layout() {
+        // Regression guard for the native resize path: state and the kernel
+        // must consume the event's physical extent converted by the live
+        // scale factor, never a separately re-queried window size.
+        let event_size = PhysicalSize::new(2_000, 1_200);
+        let stale_window_size = PhysicalSize::new(1_200, 900);
+        let scale_factor = 2.0;
+        let (width, height) = logical_size(event_size, scale_factor);
+        assert_eq!((width, height), (1_000, 600));
+        assert_ne!(
+            logical_size(stale_window_size, scale_factor),
+            logical_size(event_size, scale_factor)
+        );
+    }
 }

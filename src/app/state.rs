@@ -4774,6 +4774,37 @@ mod tests {
     }
 
     #[test]
+    fn window_shrink_then_grow_restores_pane_preferences() {
+        let settings_directory = tempfile::tempdir().expect("temporary settings directory");
+        let store = SettingsStore::at(settings_directory.path().join("settings.toml"));
+        let mut state = AppState::base(1_600, 900, store, Settings::default());
+        state.tabs[0].path = Some(std::env::temp_dir());
+        state.selected_commit = Some("selected".to_owned());
+        state.sidebar_width = 500.0;
+        state.detail_width = 690.0;
+
+        let wide = crate::ui::layout::Layout::for_state(&state);
+        assert!((wide.sidebar.width - 500.0).abs() < f32::EPSILON);
+        assert!((wide.detail.expect("detail visible").width - 690.0).abs() < f32::EPSILON);
+
+        // Shrinking clamps the effective layout to the viewport (sidebar to
+        // 45% of the width, detail to the space left after the 320px center
+        // floor) without destroying the dragged preferences.
+        state.resize(960, 700);
+        let narrow = crate::ui::layout::Layout::for_state(&state);
+        let narrow_detail = narrow.detail.expect("detail visible").width;
+        assert!((narrow.sidebar.width - 960.0 * 0.45).abs() < f32::EPSILON);
+        assert!((narrow_detail - (960.0 - 960.0 * 0.45 - 320.0)).abs() < f32::EPSILON);
+        assert!(narrow.center.width >= 320.0);
+
+        // Growing back restores the original effective extents.
+        state.resize(1_600, 900);
+        let restored = crate::ui::layout::Layout::for_state(&state);
+        assert!((restored.sidebar.width - 500.0).abs() < f32::EPSILON);
+        assert!((restored.detail.expect("detail visible").width - 690.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
     fn branch_click_selects_tip_and_double_click_checks_out() {
         let (repository_directory, _working) = repository_with_working_file();
         {
